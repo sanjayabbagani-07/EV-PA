@@ -597,14 +597,7 @@ async function askGemini(interaction = null) {
             finishVoiceTurn();
             return;
         }
-        if (!getApiKey()) {
-            showMessage("EV", "I need your Gemini API key before I can generate an AI reply. Settings is open so you can add it locally; no request was sent to Google.", "ai");
-            openApiKeySettings();
-            if (voiceConversationActive) stopVoiceConversation(true, "Voice chat paused. Add your AI key in Settings to continue.");
-            else finishVoiceTurn();
-            return;
-        }
-        messageInput.disabled = true;
+        
         sendButton.disabled = true;
         sendButton.textContent = "...";
         publishKalkiAssistantState("solving");
