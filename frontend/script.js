@@ -221,73 +221,45 @@ document.addEventListener("DOMContentLoaded", () => {
         }, 180);
     }
 
-    async function askGemini(interaction = null) {
-        const apiKey = getApiKey();
+    
+async function askGemini(interaction = null) {
+    const messages = readMemory()
+        .filter(item => item.type === "user" || item.type === "ai")
+        .slice(-20)
+        .map(item => ({
+            role: item.type === "user" ? "user" : "model",
+            text: String(item.text || "").trim()
+        }))
+        .filter(item => item.text);
 
-        if (!apiKey) {
-            throw new Error("API key enter cheyyaledu.");
-        }
-
-        const contents = readMemory()
-            .filter((item) => item.type === "user" || item.type === "ai")
-            .slice(-20)
-            .map((item) => ({
-                role: item.type === "user" ? "user" : "model",
-                parts: [{ text: item.text }]
-            }));
-
-        const apiBase =
-            "https://generativelanguage.googleapis.com/v1beta/models/";
-
-        let lastError = "AI connection failed.";
-
-        for (const modelName of MODEL_NAMES) {
-            try {
-                const apiUrl = apiBase + modelName + ":generateContent";
-
-                const response = await fetch(apiUrl, {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "application/json",
-                        "x-goog-api-key": apiKey
-                    },
-                    body: JSON.stringify({
-                        systemInstruction: {
-                            parts: [{
-                                text: `You are EV, a warm personal assistant who speaks naturally like a helpful friend, not a robotic list generator. Acknowledge statements, show empathy for emotions, ask at most one relevant follow-up when useful, clarify incomplete requests, and offer one sensible next step. Use Telugu/Teluglish naturally when the user does. Never invent calendar, task, weather, connector, or memory facts. Never claim durable memory beyond the conversation supplied. External actions remain explicit and confirmation-gated; do not send, schedule, or act in the background. ${interaction?.guidance?.tone || "Match the user’s language naturally."} ${interaction?.guidance?.style === "detailed" ? "Give a helpful explanation." : "Prefer concise, human replies."} Recent-context available: ${Boolean(interaction?.signals?.continuityAvailable)}.`
-                            }]
-                        },
-                        contents
-                    })
-                });
-
-                const data = await response.json();
-
-                if (response.ok) {
-                    const reply =
-                        data?.candidates?.[0]?.content?.parts?.[0]?.text;
-
-                    if (reply) return reply;
-                    lastError = "AI nundi reply raledu.";
-                    continue;
-                }
-
-                lastError =
-                    data?.error?.message || "AI connection failed.";
-
-                const temporaryProblem =
-                    /high demand|temporar|quota|rate|unavailable|overload|busy|deprecated|not found/i;
-
-                if (!temporaryProblem.test(lastError)) {
-                    break;
-                }
-            } catch (error) {
-                lastError = error.message;
-            }
-        }
-
-        throw new Error(lastError);
+    if (!messages.length) {
+        throw new Error("No conversation messages available.");
     }
+
+    const response = await fetch(BACKEND_CHAT_URL, {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ messages }),
+        signal: AbortSignal.timeout(35000)
+    });
+
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+        throw new Error(data.message || "EV backend chat failed.");
+    }
+
+    if (!data.reply || typeof data.reply !== "string") {
+        throw new Error("EV received an empty AI response.");
+    }
+
+    return data.reply.trim();
+}
+    
+
+        
  
 async function askGemini(interaction = null) {
     const messages = readMemory()
@@ -345,7 +317,7 @@ async function askGemini(interaction = null) {
             if (ttsStatus) ttsStatus.textContent = "Text-to-speech is not supported by this browser.";
             if (voiceConversationActive) scheduleVoiceListening(500);
             return;
-        }
+        
         stopSpeaking(false);
         if (voiceConversationActive && isListening && recognition) {
             try { recognition.stop(); } catch (_) { /* Already stopped by the browser. */ }
