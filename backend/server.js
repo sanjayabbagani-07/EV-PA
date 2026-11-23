@@ -89,6 +89,126 @@ async function routeCommand(body) {
   }
   return {executed:false,skill,providerConnected:false,skillInfo:SKILLS[skill],message:`${SKILLS[skill].name} is recognized, but its provider is not connected. Nothing was executed.`};
 }
+
+const geminiRequestCounts = new Map();
+
+function allowGeminiRequest(req) {
+  const now = Date.now();
+  const ip = String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || '')
+    .split(',')[0].trim();
+
+  let entry = geminiRequestCounts.get(ip);
+
+  if (!entry || now - entry.startedAt >= 60000) {
+    entry = { startedAt: now, count: 0 };
+  }
+
+  if (entry.count >= 10) return false;
+
+  entry.count++;
+  geminiRequestCounts.set(ip, entry);
+
+  if (geminiRequestCounts.size > 5000) {
+    for (const [key, value] of geminiRequestCounts) {
+      if (now - value.startedAt >= 60000) geminiRequestCounts.delete(key);
+    }
+  }
+
+  return true;
+}
+
+async function generateGeminiReply(body) {
+  const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_API_KEY;
+
+  if (!apiKey) {
+    const error = new Error('Gemini is not configured on the backend.');
+    error.statusCode = 503;
+    throw error;
+  }
+
+  const messages = Array.isArray(body.messages) ? body.messages.slice(-20) : [];
+
+  if (!messages.length) {
+    const error = new Error('Conversation messages are required.');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  let totalLength = 0;
+
+  const contents = messages.map(item => {
+    const role = item.role === 'model' ? 'model' : 'user';
+    const text = typeof item.text === 'string' ? item.text.trim() : '';
+
+    totalLength += text.length;
+
+    if (!text || text.length > 6000 || totalLength > 16000) {
+      const error = new Error('Conversation is too long or contains an invalid message.');
+      error.statusCode = 400;
+      throw error;
+    }
+
+    return { role, parts: [{ text }] };
+  });
+
+  if (contents[contents.length - 1].role !== 'user') {
+    const error = new Error('The latest message must be from the user.');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const model = process.env.GEMINI_MODEL || 'gemini-3.8-flash';
+
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': apiKey
+      },
+      body: JSON.stringify({
+        systemInstruction: {
+          parts: [{
+            text: 'You are EV, a warm personal AI assistant. Speak naturally and concisely. Use Telugu or Teluglish when the user does. Never invent calendar, task, weather, connector, or memory facts. Never claim durable memory beyond the supplied conversation. External actions require explicit user requests and confirmation. Never perform background actions.'
+          }]
+        },
+        contents,
+        generationConfig: {
+          temperature: 0.7,
+          maxOutputTokens: 700
+        }
+      }),
+      signal: AbortSignal.timeout(30000)
+    }
+  );
+
+  const data = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    const error = new Error(
+      response.status === 429
+        ? 'Gemini is busy or its usage limit was reached. Try again later.'
+        : 'Gemini could not complete the request. Check the backend provider configuration.'
+    );
+    error.statusCode = response.status === 429 ? 429 : 502;
+    throw error;
+  }
+
+  const reply = data?.candidates?.[0]?.content?.parts
+    ?.map(part => part.text || '')
+    .join('')
+    .trim();
+
+  if (!reply) {
+    const error = new Error('Gemini returned an empty response.');
+    error.statusCode = 502;
+    throw error;
+  }
+
+  return reply;
+}
+
 const server=http.createServer(async(req,res)=>{
   if(req.method==='OPTIONS') return json(res,204,{});
   const url=new URL(req.url,`http://${req.headers.host}`);
