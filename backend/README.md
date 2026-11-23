@@ -6,7 +6,7 @@ This backend is the command/skill gateway for the EV frontend.
 
 - No background listener or automatic WhatsApp replies.
 - A skill executes only after an explicit `/api/command` request.
-- Every protected route requires `Authorization: Bearer <JARVIS_API_TOKEN>`.
+- Every protected route requires `Authorization: Bearer <EV_API_TOKEN>`.
 - WhatsApp credentials stay server-side in environment variables.
 
 ## Run
