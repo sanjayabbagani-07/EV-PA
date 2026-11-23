@@ -597,7 +597,7 @@ async function askGemini(interaction = null) {
             finishVoiceTurn();
             return;
         }
-        
+        messageInput.disabled = true;
         sendButton.disabled = true;
         sendButton.textContent = "...";
         publishKalkiAssistantState("solving");
