@@ -1,13 +1,13 @@
 services:
   - type: web
-    name: jarvis-secure-backend
+    name: ev-pa-backend
     runtime: node
     rootDir: backend
     buildCommand: npm install
     startCommand: npm start
     healthCheckPath: /api/health
     envVars:
-      - key: JARVIS_API_TOKEN
+      - key: EV_API_TOKEN
         generateValue: true
       - key: ALLOWED_ORIGIN
         sync: false
