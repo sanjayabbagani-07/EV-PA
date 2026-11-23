@@ -2,7 +2,7 @@
 
 The repository contains a static frontend and a private Node backend. The intended production split is:
 
-- **Backend:** Render web service created from the repository's `render.yaml` (`jarvis-secure-backend`, root directory `backend`). Render exposes the service URL used by the frontend, for example `https://jarvis-secure-backend.onrender.com`.
+- **Backend:** Render web service created from the repository's `render.yaml` (`ev-pa-backend`, root directory `backend`). Render exposes the service URL used by the frontend, for example `https://ev-pa-backend.onrender.com`.
 - **Frontend:** Vercel or GitHub Pages static hosting. The frontend must call that Render URL, not the Vercel frontend URL, for `/api/health`, `/api/command`, and other backend APIs.
 
 ## Render (backend)
@@ -12,14 +12,14 @@ The repository contains a static frontend and a private Node backend. The intend
    - build command: `npm install`
    - start command: `npm start`
    - health check: `/api/health`
-2. Keep `JARVIS_API_TOKEN` secret. The Blueprint generates one; do not copy it into the frontend or GitHub.
+2. Keep `EV_API_TOKEN` secret. The Blueprint generates one; do not copy it into the frontend or GitHub.
 3. Set `ALLOWED_ORIGIN` to the final HTTPS frontend origin (for example `https://<project>.vercel.app`).
 4. Leave `WPP_BRIDGE_URL`, `WPP_BRIDGE_TOKEN`, and `WPP_SELF_CHAT_ID` blank until a private bridge is deliberately provisioned.
 5. Verify the public Render URL returns `ok: true` from `/api/health`.
 
 ## Vercel/frontend (last-mile configuration)
 
-Update the frontend's backend base/health and command URLs to the final Render HTTPS URL, then redeploy the static frontend. Do not set the backend URL to the Vercel frontend URL and do not expose `JARVIS_API_TOKEN` in Vercel client-side variables. After deployment, check that the frontend loads and that a read-only health request succeeds.
+Update the frontend's backend base/health and command URLs to the final Render HTTPS URL, then redeploy the static frontend. Do not set the backend URL to the Vercel frontend URL and do not expose `EV_API_TOKEN` in Vercel client-side variables. After deployment, check that the frontend loads and that a read-only health request succeeds.
 
 ## Launch contract and billing safety
 
