@@ -272,6 +272,7 @@ if (req.method === 'POST' && url.pathname === '/api/chat') {
       message: error.message
     });
   }
+}
 
     
     if(req.method==='POST'&&url.pathname==='/api/command') return json(res,200,{ok:true,result:await routeCommand(await readBody(req))});
