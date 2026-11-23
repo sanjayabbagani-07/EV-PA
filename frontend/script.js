@@ -288,7 +288,43 @@ document.addEventListener("DOMContentLoaded", () => {
 
         throw new Error(lastError);
     }
+ 
+async function askGemini(interaction = null) {
+    const messages = readMemory()
+        .filter(item => item.type === "user" || item.type === "ai")
+        .slice(-20)
+        .map(item => ({
+            role: item.type === "user" ? "user" : "model",
+            text: String(item.text || "").trim()
+        }))
+        .filter(item => item.text);
 
+    if (!messages.length) {
+        throw new Error("No conversation messages available.");
+    }
+
+    const response = await fetch(BACKEND_CHAT_URL, {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ messages }),
+        signal: AbortSignal.timeout(35000)
+    });
+
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+        throw new Error(data.message || "EV backend chat failed.");
+    }
+
+    if (!data.reply || typeof data.reply !== "string") {
+        throw new Error("EV received an empty AI response.");
+    }
+
+    return data.reply.trim();
+}
+    
     function resetSpeakButton() {
         if (activeSpeakButton?.isConnected) {
             activeSpeakButton.textContent = "🔊 Read aloud";
