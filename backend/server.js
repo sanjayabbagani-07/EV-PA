@@ -252,6 +252,28 @@ const server=http.createServer(async(req,res)=>{
     if(req.method==='GET'&&url.pathname==='/api/skills') return json(res,200,{ok:true,skills:Object.fromEntries(Object.entries(SKILLS).map(([id,meta])=>[id,{id,...meta,handler:Boolean(SKILL_HANDLERS[id])}]))});
     if(req.method==='GET'&&url.pathname==='/api/intelligence/status') return json(res,200,{ok:true,capabilities:ADVANCED.capabilityStatus(),policy:'explicit consent and approval gates; no autonomous execution'});
     if(req.method==='POST'&&url.pathname==='/api/intelligence/plan') { const body=await readBody(req); return json(res,200,{ok:true,plan:ADVANCED.preparePlan(body.text)}); }
+    
+if (req.method === 'POST' && url.pathname === '/api/chat') {
+  if (!allowGeminiRequest(req)) {
+    return json(res, 429, {
+      ok: false,
+      message: 'Too many requests. Please try again shortly.'
+    });
+  }
+
+  const body = await readBody(req);
+
+  try {
+    const reply = await generateGeminiReply(body);
+    return json(res, 200, { ok: true, reply });
+  } catch (error) {
+    return json(res, error.statusCode || 502, {
+      ok: false,
+      message: error.message
+    });
+  }
+
+    
     if(req.method==='POST'&&url.pathname==='/api/command') return json(res,200,{ok:true,result:await routeCommand(await readBody(req))});
     const directSkillRoutes = {'/api/skills/day-organizer':'dayOrganizer','/api/skills/stay-in-touch':'stayInTouch','/api/skills/whatsapp-audio':'whatsappAudioTranscription','/api/skills/unavailable-time-reply-drafts':'unavailableTimeReplyDrafts'};
     if(req.method==='POST'&&directSkillRoutes[url.pathname]) {
