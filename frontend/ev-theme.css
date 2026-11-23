@@ -1,0 +1,79 @@
+/* EV theme: red/blue HUD look from EV.html, layered over the existing app. Loaded last. */
+:root{--bg:#05060f;--surface:rgba(12,10,26,.78);--surface-2:rgba(20,14,36,.86);--line:rgba(255,59,70,.30);
+--text:#eef1ff;--muted:#9aa0c4;--accent:#ff3b46;--accent-2:#c9202c;--user:#0f1c3a;
+--ev-red:#ff3b46;--ev-blue:#4f86ff;--ev-disp:'Orbitron','Segoe UI',system-ui,sans-serif;--ev-body:'Rajdhani','Segoe UI',system-ui,sans-serif}
+html{color-scheme:dark}
+html,body{background:#05060f!important}
+body{font-family:var(--ev-body)!important;font-weight:500;font-size:17px;letter-spacing:.01em;
+background:radial-gradient(900px 520px at 50% -120px,rgba(255,59,70,.15),transparent 62%),radial-gradient(700px 500px at 100% 100%,rgba(79,134,255,.10),transparent 60%),#05060f!important}
+button,input,textarea,select{font-family:inherit}
+#ev-bg{position:fixed;inset:0;width:100%;height:100%;z-index:0;pointer-events:none}
+.app-shell{position:relative;z-index:1}
+.ev-vig{position:fixed;inset:0;z-index:59;pointer-events:none;background:radial-gradient(ellipse at center,transparent 55%,rgba(0,0,0,.55))}
+.ev-scan{position:fixed;inset:0;z-index:60;pointer-events:none;background:repeating-linear-gradient(0deg,rgba(0,0,0,0) 0 2px,rgba(0,0,0,.09) 2px 3px)}
+
+[hidden]{display:none!important}
+
+/* header */
+.app-header{background:rgba(5,6,15,.74)!important;backdrop-filter:blur(8px);border-bottom:1px solid var(--line)!important}
+.brand-lockup h1{font-family:var(--ev-disp)!important;font-weight:900;letter-spacing:.34em;font-size:21px;color:var(--ev-red)!important;text-shadow:0 0 14px rgba(255,59,70,.55)}
+.brand-lockup p{font-size:11px!important;letter-spacing:.18em;text-transform:uppercase;color:var(--muted)!important}
+.brand-mark{border-radius:50%!important;border:1px solid var(--line)!important;box-shadow:0 0 14px rgba(255,59,70,.38);overflow:hidden;background:#05060f!important}
+.brand-mark img{width:100%;height:100%;object-fit:cover}
+.icon-button{border:1px solid var(--line)!important;color:var(--ev-red)!important;border-radius:4px!important;background:rgba(255,59,70,.06)!important}
+.icon-button:hover{box-shadow:0 0 14px rgba(255,59,70,.4)}
+.ev-clock{margin-left:auto;margin-right:10px;text-align:right;font:700 13px/1.1 var(--ev-disp);letter-spacing:.08em;color:var(--text);white-space:nowrap}
+.ev-clock small{display:block;margin-top:3px;font:600 9px var(--ev-body);letter-spacing:.14em;color:var(--muted);text-transform:uppercase}
+@media(max-width:520px){.ev-clock small{display:none}.brand-lockup{min-width:0;flex:1 1 auto}.brand-lockup p{font-size:9px!important;letter-spacing:.1em!important;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
+
+/* welcome + reactor */
+.welcome .welcome-orb{width:min(62vw,230px)!important;height:min(62vw,230px)!important;margin:0 auto 4px!important;border:0!important;background:none!important;box-shadow:none!important;animation:none!important;font-size:0!important;color:transparent!important;display:block!important}
+.welcome .welcome-orb::before,.welcome .welcome-orb::after{display:none!important}
+.welcome-orb canvas{width:100%;height:100%;display:block}
+.ev-state{font:700 12px var(--ev-disp);letter-spacing:.5em;text-align:center;text-transform:uppercase;color:#fff;text-shadow:0 0 10px var(--ev-red);margin:0 0 16px;padding-left:.5em}
+.eyebrow{color:var(--ev-red)!important;font-family:var(--ev-disp)!important;letter-spacing:.3em!important;font-size:11px!important;text-shadow:0 0 12px rgba(255,59,70,.4)}
+.welcome h2{font-family:var(--ev-disp)!important;letter-spacing:.04em}
+.welcome h2 em{color:var(--ev-red)!important;font-style:normal}
+
+/* chat */
+.msg{border:0!important;border-left:3px solid var(--ev-red)!important;border-radius:0!important;background:linear-gradient(90deg,rgba(255,59,70,.11),rgba(255,59,70,.02))!important;color:var(--text)!important}
+.msg strong{font:700 11px var(--ev-disp);letter-spacing:.24em;color:var(--ev-red);text-transform:uppercase}
+.msg.user{border-left:0!important;border-right:3px solid var(--ev-blue)!important;background:linear-gradient(270deg,rgba(79,134,255,.15),rgba(79,134,255,.03))!important}
+.msg.user strong{color:var(--ev-blue)}
+.speak-button{border-radius:3px!important;border:1px solid var(--line)!important;color:var(--ev-red)!important;background:rgba(255,59,70,.05)!important}
+
+/* composer */
+.composer{border:1px solid var(--line)!important;border-radius:6px!important;background:rgba(10,8,22,.84)!important;box-shadow:0 0 18px rgba(255,59,70,.12)}
+.composer:focus-within{border-color:var(--ev-red)!important;box-shadow:0 0 22px rgba(255,59,70,.3)}
+#msg{font-family:var(--ev-body)!important;font-weight:600;font-size:17px}
+.send-button{background:var(--ev-red)!important;color:#fff!important;border-radius:4px!important;box-shadow:0 0 14px rgba(255,59,70,.5)}
+.composer-icon{color:var(--ev-red)!important}
+.voice-conversation-toggle[aria-pressed="true"]{background:var(--ev-red)!important;color:#fff!important;box-shadow:0 0 18px rgba(255,59,70,.7)}
+.safe-note,.voice-mode-status{letter-spacing:.05em;color:var(--muted)!important}
+
+/* HUD panels */
+.side-sheet,.creator-agent-panel,.social-agent-panel,.everyday-tools,.advanced-intelligence-panel,.share-preview,.kalki-effects-panel{border:1px solid var(--line)!important;border-radius:4px!important;background:var(--surface)!important;backdrop-filter:blur(6px)}
+.creator-agent-panel,.social-agent-panel,.everyday-tools,.advanced-intelligence-panel,.share-preview,.kalki-effects-panel{position:relative}
+.side-sheet::before,.creator-agent-panel::before,.social-agent-panel::before,.everyday-tools::before,.advanced-intelligence-panel::before,.share-preview::before{content:"";position:absolute;top:-1px;left:-1px;width:14px;height:14px;border-top:2px solid var(--ev-red);border-left:2px solid var(--ev-red);pointer-events:none}
+.side-sheet::after,.creator-agent-panel::after,.social-agent-panel::after,.everyday-tools::after,.advanced-intelligence-panel::after,.share-preview::after{content:"";position:absolute;bottom:-1px;right:-1px;width:14px;height:14px;border-bottom:2px solid var(--ev-red);border-right:2px solid var(--ev-red);pointer-events:none}
+
+/* buttons */
+.sheet-link,.suggestions button,.tool-grid button,.creator-secondary,.social-secondary,.creator-primary,.social-primary,.share-actions button{border:1px solid var(--line)!important;border-radius:3px!important;background:rgba(255,59,70,.06)!important;color:var(--ev-red)!important;font-family:var(--ev-disp)!important;font-size:11px!important;letter-spacing:.12em;text-transform:uppercase}
+.sheet-link:hover,.suggestions button:hover,.tool-grid button:hover,.creator-primary:hover,.social-primary:hover,.share-actions button:hover{background:rgba(255,59,70,.16)!important;box-shadow:0 0 14px rgba(255,59,70,.35)}
+.creator-primary,.social-primary{background:rgba(255,59,70,.2)!important;color:#fff!important}
+input,textarea,select{caret-color:var(--ev-red)}
+input:focus,textarea:focus,select:focus{outline:none;border-color:var(--ev-red)!important;box-shadow:0 0 0 2px rgba(255,59,70,.22)}
+
+/* boot */
+#ev-boot{position:fixed;inset:0;z-index:100;background:#05060f;display:flex;align-items:center;justify-content:center;transition:opacity .5s;cursor:pointer}
+.ev-boot-box{width:min(88vw,460px);font-family:var(--ev-disp)}
+.ev-boot-title{font-weight:900;font-size:44px;letter-spacing:.5em;color:var(--ev-red);text-shadow:0 0 22px rgba(255,59,70,.7);margin-bottom:22px;padding-left:.5em}
+#ev-boot-log{margin:0;min-height:130px;font:600 13px/1.9 var(--ev-body);letter-spacing:.12em;color:#c8cdef;white-space:pre-wrap}
+.ev-boot-box small{display:block;margin-top:18px;font-size:10px;letter-spacing:.3em;color:var(--muted)}
+@media(prefers-reduced-motion:reduce){.ev-scan{display:none}}
+
+/* original code un-hides the share box even when nothing was shared: show it only with content */
+.share-preview:has(#share-summary:empty):has(#share-files:empty){display:none!important}
+/* settings-page buttons that had no style of their own (default light grey) */
+#save-preferences,#clear-data,.settings-actions button,main button:not([class]){border:1px solid var(--line)!important;border-radius:3px!important;background:rgba(255,59,70,.14)!important;color:#fff!important;font-family:var(--ev-disp);font-size:11px;letter-spacing:.1em;text-transform:uppercase;padding:11px 14px}
+#clear-data,#clear-data.quiet{background:rgba(255,59,70,.05)!important;color:var(--ev-red)!important}
