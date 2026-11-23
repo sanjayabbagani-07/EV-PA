@@ -30,7 +30,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const desktopPairButton = document.getElementById("desktop-pair-button");
     const desktopUnpairButton = document.getElementById("desktop-unpair-button");
     const desktopAgentStatus = document.getElementById("desktop-agent-status");
-
+    if (sendButton) sendButton.addEventListener("click", sendMessage);
     const MEMORY_KEY = "jarvis_chat_memory";
     const TTS_AUTO_READ_KEY = "kalki.tts.autoRead";
     const TTS_VOICE_KEY = "kalki.tts.voiceURI";
