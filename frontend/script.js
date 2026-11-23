@@ -961,7 +961,7 @@ async function askGemini(interaction = null) {
     clearApiKeyButton?.addEventListener("click", clearApiKey);
     apiKeyInput?.addEventListener("keydown", (event) => { if (event.key === "Enter") { event.preventDefault(); saveApiKey(); } });
 
-    if (sendButton) sendButton.addEventListener("click", sendMessage);
+    
     if (clearButton) clearButton.addEventListener("click", clearChat);
     if (micButton) micButton.addEventListener("click", toggleVoice);
 
