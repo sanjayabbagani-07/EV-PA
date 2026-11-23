@@ -279,7 +279,7 @@ async function askGemini(interaction = null) {
             if (ttsStatus) ttsStatus.textContent = "Text-to-speech is not supported by this browser.";
             if (voiceConversationActive) scheduleVoiceListening(500);
             return;
-        
+        }
         stopSpeaking(false);
         if (voiceConversationActive && isListening && recognition) {
             try { recognition.stop(); } catch (_) { /* Already stopped by the browser. */ }
