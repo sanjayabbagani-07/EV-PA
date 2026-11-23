@@ -11,7 +11,7 @@ const ADVANCED = require('./advanced-intelligence');
 const INTERACTION = require('./interaction-brain');
 
 const PORT = Number(process.env.PORT || 8787);
-const API_TOKEN = process.env.JARVIS_API_TOKEN || '';
+const API_TOKEN = process.env.EV_API_TOKEN || '';
 const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || '*';
 const WPP_BRIDGE_URL = process.env.WPP_BRIDGE_URL || '';
 const WPP_BRIDGE_TOKEN = process.env.WPP_BRIDGE_TOKEN || '';
