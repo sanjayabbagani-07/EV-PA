@@ -184,6 +184,71 @@ function buildSystemPrompt(body) {
   ].join('\n');
 }
 
+async function generateGroqReply(body) {
+  const apiKey = String(process.env.GROQ_API_KEY || '').trim();
+
+  if (!apiKey) {
+    throw new Error('Groq API key is not configured.');
+  }
+
+  const messages = Array.isArray(body.messages)
+    ? body.messages.slice(-20)
+    : [];
+
+  if (!messages.length) {
+    throw new Error('Conversation messages are required.');
+  }
+
+  const chatMessages = [
+    {
+      role: 'system',
+      content: buildSystemPrompt(body)
+    },
+    ...messages.map(item => ({
+      role: item.role === 'model' ? 'assistant' : 'user',
+      content: String(item.text || '').trim()
+    }))
+  ];
+
+  if (chatMessages[chatMessages.length - 1].role !== 'user') {
+    throw new Error('The latest message must be from the user.');
+  }
+
+  const response = await fetch(
+    'https://api.groq.com/openai/v1/chat/completions',
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model: process.env.GROQ_MODEL || 'openai/gpt-oss-20b',
+        messages: chatMessages,
+        temperature: 0.7,
+        max_completion_tokens: 1500
+      }),
+      signal: AbortSignal.timeout(30000)
+    }
+  );
+
+  const data = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    console.error('[Groq error]', response.status,
+      data?.error?.message || 'Request failed');
+    throw new Error('Groq request failed.');
+  }
+
+  const reply = data?.choices?.[0]?.message?.content?.trim();
+
+  if (!reply) {
+    throw new Error('Groq returned an empty response.');
+  }
+
+  return reply;
+}
+
 async function generateGeminiReply(body) {
   const apiKey = String(process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_API_KEY || '').trim().replace(/^["']|["']$/g, '');
 
