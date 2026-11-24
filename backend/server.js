@@ -410,7 +410,14 @@ if (req.method === 'POST' && url.pathname === '/api/chat') {
   const body = await readBody(req);
 
   try {
-    const reply = await generateGeminiReply(body);
+    let reply;
+
+try {
+  reply = await generateGroqReply(body);
+} catch (groqError) {
+  console.error('[AI provider] Groq failed; trying Gemini fallback.');
+  reply = await generateGeminiReply(body);
+}
     return json(res, 200, { ok: true, reply });
   } catch (error) {
     return json(res, error.statusCode || 502, {
