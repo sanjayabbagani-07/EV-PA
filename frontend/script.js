@@ -1266,6 +1266,7 @@ async function startNewConversation() {
 
     
     if (clearButton) clearButton.addEventListener("click", clearChat);
+    document.getElementById("new-chat-btn")?.addEventListener("click", startNewConversation);
     if (micButton) micButton.addEventListener("click", toggleVoice);
 
     if (messageInput) {
