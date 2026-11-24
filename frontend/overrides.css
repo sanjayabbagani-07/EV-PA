@@ -2,7 +2,7 @@
 :root{--header-h:68px;--mode-h:70px;--composer-h:92px}
 html,body{width:100%;min-height:100%;overflow-x:hidden}
 body{padding-bottom:env(safe-area-inset-bottom);}
-.app-shell{width:100%;max-width:900px;min-height:100svh;overflow:hidden}
+.app-shell{width:100%;max-width:900px;min-height:100svh;overflow:visible}
 .app-header{
   position:sticky;
   top:0;
@@ -59,4 +59,35 @@ body.has-conversation:not(.utility-mode-active) .welcome{display:none!important}
     margin-top: var(--header-h);
     height: calc(100svh - var(--header-h));
     min-height: calc(100svh - var(--header-h));
+}
+/* EV reactor fixed above the conversation */
+#ev-reactor-dock {
+    position: fixed !important;
+    top: var(--header-h) !important;
+    left: 50% !important;
+    transform: translateX(-50%);
+    width: min(100%, 900px);
+    margin: 0 !important;
+    z-index: 80 !important;
+    box-sizing: border-box;
+}
+
+#ev-reactor-dock .welcome-orb {
+    width: min(52vw, 190px) !important;
+    height: min(52vw, 190px) !important;
+}
+
+.assistant-main {
+    padding-top: 210px !important;
+}
+
+@media (max-width: 520px) {
+    #ev-reactor-dock .welcome-orb {
+        width: min(48vw, 160px) !important;
+        height: min(48vw, 160px) !important;
+    }
+
+    .assistant-main {
+        padding-top: 180px !important;
+    }
 }
