@@ -77,3 +77,68 @@ input:focus,textarea:focus,select:focus{outline:none;border-color:var(--ev-red)!
 /* settings-page buttons that had no style of their own (default light grey) */
 #save-preferences,#clear-data,.settings-actions button,main button:not([class]){border:1px solid var(--line)!important;border-radius:3px!important;background:rgba(255,59,70,.14)!important;color:#fff!important;font-family:var(--ev-disp);font-size:11px;letter-spacing:.1em;text-transform:uppercase;padding:11px 14px}
 #clear-data,#clear-data.quiet{background:rgba(255,59,70,.05)!important;color:var(--ev-red)!important}
+
+/* Persistent EV reactor: stays visible during conversations */
+
+#ev-reactor-dock {
+    position: sticky;
+    top: 0;
+    z-index: 4;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    padding: 8px 0 10px;
+    margin: 0 auto 12px;
+    background: linear-gradient(
+        180deg,
+        rgba(5, 6, 15, .98),
+        rgba(5, 6, 15, .88)
+    );
+    border-bottom: 1px solid rgba(79, 134, 255, .14);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+}
+
+#ev-reactor-dock .welcome-orb {
+    width: min(62vw, 230px) !important;
+    height: min(62vw, 230px) !important;
+    margin: 0 auto !important;
+    border: 0 !important;
+    background: none !important;
+    box-shadow: none !important;
+    animation: none !important;
+    font-size: 0 !important;
+    color: transparent !important;
+    display: block !important;
+}
+
+#ev-reactor-dock .welcome-orb::before,
+#ev-reactor-dock .welcome-orb::after {
+    display: none !important;
+}
+
+#ev-reactor-dock .welcome-orb canvas {
+    width: 100%;
+    height: 100%;
+    display: block;
+}
+
+#ev-reactor-dock .ev-state {
+    margin: 0;
+    padding-left: .5em;
+    font-size: 10px;
+    letter-spacing: .4em;
+}
+
+@media (max-width: 520px) {
+    #ev-reactor-dock {
+        padding: 4px 0 8px;
+    }
+
+    #ev-reactor-dock .welcome-orb {
+        width: min(62vw, 210px) !important;
+        height: min(62vw, 210px) !important;
+    }
+}
