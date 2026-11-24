@@ -1,4 +1,4 @@
-/* EV theme: red/blue HUD look from EV.html, layered over the existing app. Loaded last. */
+7/* EV theme: red/blue HUD look from EV.html, layered over the existing app. Loaded last. */
 :root{--bg:#05060f;--surface:rgba(12,10,26,.78);--surface-2:rgba(20,14,36,.86);--line:rgba(255,59,70,.30);
 --text:#eef1ff;--muted:#9aa0c4;--accent:#ff3b46;--accent-2:#c9202c;--user:#0f1c3a;
 --ev-red:#ff3b46;--ev-blue:#4f86ff;--ev-disp:'Orbitron','Segoe UI',system-ui,sans-serif;--ev-body:'Rajdhani','Segoe UI',system-ui,sans-serif}
@@ -140,5 +140,51 @@ input:focus,textarea:focus,select:focus{outline:none;border-color:var(--ev-red)!
     #ev-reactor-dock .welcome-orb {
         width: min(62vw, 210px) !important;
         height: min(62vw, 210px) !important;
+    }
+}
+/* EV circular reactor: transparent dock, live animated core */
+#ev-reactor-dock {
+    background: transparent !important;
+    border: 0 !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+}
+
+#ev-reactor-dock .welcome-orb {
+    width: min(42vw, 160px) !important;
+    height: min(42vw, 160px) !important;
+    aspect-ratio: 1 / 1;
+    border-radius: 50% !important;
+    overflow: hidden;
+    filter: drop-shadow(0 0 18px rgba(255, 59, 70, .28));
+}
+
+#ev-reactor-dock .welcome-orb canvas {
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+}
+
+#ev-reactor-dock .ev-state {
+    margin-top: 5px;
+    text-align: center;
+    color: #dce5ff;
+    text-shadow: 0 0 10px rgba(79, 134, 255, .7);
+}
+
+.assistant-main {
+    padding-top: 210px !important;
+}
+
+@media (max-width: 520px) {
+    #ev-reactor-dock .welcome-orb {
+        width: min(42vw, 145px) !important;
+        height: min(42vw, 145px) !important;
+    }
+
+    .assistant-main {
+        padding-top: 190px !important;
     }
 }
