@@ -33,38 +33,14 @@ document.addEventListener("DOMContentLoaded", () => {
     if (sendButton) sendButton.addEventListener("click", sendMessage);
     const MEMORY_KEY = "ev_pa_chat_memory";
     const ARCHIVE_KEY = "ev_conversation_archive_v1";
-    // Migrate previous EV chat history without deleting the original.
-try {
-    const oldMemory = JSON.parse(
-        localStorage.getItem("jarvis_chat_memory") || "[]"
-    );
-    const currentMemory = JSON.parse(
-        localStorage.getItem(MEMORY_KEY) || "[]"
-    );
-
-    if (Array.isArray(oldMemory) && oldMemory.length) {
-        const oldItems = oldMemory;
-        const newItems = Array.isArray(currentMemory) ? currentMemory : [];
-
-        let overlap = 0;
-        const maxOverlap = Math.min(oldItems.length, newItems.length);
-
-        for (let size = maxOverlap; size > 0; size--) {
-            const oldEnd = oldItems.slice(-size);
-            const newStart = newItems.slice(0, size);
-
-            if (JSON.stringify(oldEnd) === JSON.stringify(newStart)) {
-                overlap = size;
-                break;
-            }
-        }
-
-        const merged = oldItems.concat(newItems.slice(overlap));
-        localStorage.setItem(MEMORY_KEY, JSON.stringify(merged.slice(-30)));
+        // Always start EV with a fresh conversation on app launch.
+    // Keep archived conversation summaries untouched.
+    try {
+        localStorage.removeItem(MEMORY_KEY);
+        localStorage.removeItem("jarvis_chat_memory");
+    } catch (error) {
+        console.warn("[EV fresh conversation]", error);
     }
-} catch (error) {
-    console.warn("[EV memory migration]", error);
-}
     const TTS_AUTO_READ_KEY = "kalki.tts.autoRead";
     const TTS_VOICE_KEY = "kalki.tts.voiceURI";
     const VOICE_INPUT_LANGUAGE_KEY = "kalki.voice.inputLanguage";
