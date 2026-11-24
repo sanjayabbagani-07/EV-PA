@@ -78,7 +78,11 @@ body.has-conversation:not(.utility-mode-active) .welcome{display:none!important}
 }
 
 .assistant-main {
-    padding-top: 210px !important;
+    padding-top: 204px !important;
+}
+
+.welcome {
+    padding-top: 14px !important;
 }
 
 @media (max-width: 520px) {
@@ -88,6 +92,6 @@ body.has-conversation:not(.utility-mode-active) .welcome{display:none!important}
     }
 
     .assistant-main {
-        padding-top: 180px !important;
+        padding-top: 174px !important;
     }
 }
