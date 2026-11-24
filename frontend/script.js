@@ -372,19 +372,26 @@ async function askGemini(interaction = null) {
         if (voiceConversationActive && isListening && recognition) {
             try { recognition.stop(); } catch (_) { /* Already stopped by the browser. */ }
         }
-        const utterance = new SpeechSynthesisUtterance(String(text).replace(/\bEV\b/g, "E V")); // read the name as two letters
+                const speechText = String(text).replace(/\bEV\b/g, "E V");
+        const utterance = new SpeechSynthesisUtterance(speechText);
+
         const voices = window.speechSynthesis.getVoices();
+        const isTelugu = /[\u0C00-\u0C7F]/.test(speechText);
+        const targetLanguage = isTelugu ? "te" : "en";
+
         const selectedVoice = getSelectedTtsVoice(voices);
-        if (selectedVoice) {
-            utterance.voice = selectedVoice;
-            utterance.lang = selectedVoice.lang || "en-IN";
-        } else {
-            const hasTeluguScript = Array.from(String(text)).some((character) => {
-                const codePoint = character.codePointAt(0) || 0;
-                return codePoint >= 0x0C00 && codePoint <= 0x0C7F;
-            });
-            utterance.lang = hasTeluguScript ? "te-IN" : "en-IN";
+        const matchingVoice =
+            selectedVoice?.lang?.toLowerCase().startsWith(targetLanguage)
+                ? selectedVoice
+                : voices.find((voice) =>
+                    voice.lang?.toLowerCase().startsWith(targetLanguage)
+                );
+
+        if (matchingVoice) {
+            utterance.voice = matchingVoice;
         }
+
+        utterance.lang = isTelugu ? "te-IN" : "en-IN";
         utterance.rate = 0.96;
         activeUtterance = utterance;
         activeSpeakButton = button;
