@@ -687,6 +687,84 @@ async function askGemini(interaction = null) {
         if (messageInput) messageInput.value = "";
     }
 
+async function startNewConversation() {
+    const newChatButton = document.getElementById("new-chat-btn");
+    const transcript = readMemory()
+        .filter(item =>
+            (item.type === "user" || item.type === "ai") &&
+            String(item.text || "").trim()
+        )
+        .slice(-30);
+
+    if (!transcript.length) {
+        clearChat();
+        return;
+    }
+
+    if (newChatButton) newChatButton.disabled = true;
+
+    if (voiceConversationActive) {
+        stopVoiceConversation(false, "Saving the previous conversation...");
+    } else {
+        stopSpeaking(false);
+    }
+
+    showMessage("SYSTEM", "EV is summarizing this conversation before starting a new one...", "ai", false);
+
+    try {
+        const messages = transcript.map(item => ({
+            role: item.type === "user" ? "user" : "model",
+            text: String(item.text || "").trim()
+        }));
+
+        messages.push({
+            role: "user",
+            text: "Create a concise but useful memory summary of the conversation above. Preserve important facts, decisions, preferences, unfinished tasks, and next steps. Do not invent details. Return only the summary."
+        });
+
+        const response = await fetch(BACKEND_CHAT_URL, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                messages,
+                profile: { name: "", language: "auto", style: "short" },
+                context: {
+                    task: "conversation_summary",
+                    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone
+                }
+            }),
+            signal: AbortSignal.timeout(40000)
+        });
+
+        const data = await response.json().catch(() => ({}));
+
+        if (!response.ok || typeof data.reply !== "string" || !data.reply.trim()) {
+            throw new Error(data.message || "EV could not create the conversation summary.");
+        }
+
+        const archive = JSON.parse(localStorage.getItem(ARCHIVE_KEY) || "[]");
+
+        archive.push({
+            summary: data.reply.trim(),
+            savedAt: new Date().toISOString(),
+            messageCount: transcript.length
+        });
+
+        localStorage.setItem(ARCHIVE_KEY, JSON.stringify(archive.slice(-25)));
+
+        clearChat();
+        showMessage("SYSTEM", "Previous conversation summarized and saved. EV is ready for a fresh conversation.", "ai", false);
+
+    } catch (error) {
+        console.error("[EV conversation archive]", error);
+        showMessage("SYSTEM", "I couldn't save the summary. Your previous conversation is still here. Please try again.", "ai", false);
+    } finally {
+        if (newChatButton) newChatButton.disabled = false;
+    }
+}
+    
     function setVoiceModeStatus(message, active = voiceConversationActive) {
         const voiceState = {
             active: Boolean(active),
