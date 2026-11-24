@@ -59,7 +59,7 @@ document.addEventListener("DOMContentLoaded", () => {
     let voiceErrorStreak = 0;
     function addressName() { return String(conversationPreferences().name || "").trim().slice(0, 40) || "Boss"; }
     // Voice mode switches itself off after this many ms with no speech while the mic is open.
-    const VOICE_IDLE_TIMEOUT_MS = 8000;
+    const VOICE_IDLE_TIMEOUT_MS = 5000;
     let voiceIdleTimer = null;
     function clearVoiceIdleTimer() { window.clearTimeout(voiceIdleTimer); voiceIdleTimer = null; }
     function armVoiceIdleTimer() {
@@ -881,7 +881,9 @@ async function startNewConversation() {
         };
 
         recognition.onspeechstart = () => { clearVoiceIdleTimer(); };
-
+  recognition.onspeechend = () => {
+    if (!voiceTurnPending) armVoiceIdleTimer();
+};
         recognition.onresult = (event) => {
             clearVoiceIdleTimer(); // any result (even interim) means speech is happening
             const text = Array.from(event.results || [])
