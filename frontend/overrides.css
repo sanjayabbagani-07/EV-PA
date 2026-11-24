@@ -3,7 +3,16 @@
 html,body{width:100%;min-height:100%;overflow-x:hidden}
 body{padding-bottom:env(safe-area-inset-bottom);}
 .app-shell{width:100%;max-width:900px;min-height:100svh;overflow:hidden}
-.app-header{height:var(--header-h);min-height:var(--header-h);padding-top:max(10px,env(safe-area-inset-top));padding-left:max(16px,env(safe-area-inset-left));padding-right:max(16px,env(safe-area-inset-right));}
+.app-header{
+  position:sticky;
+  top:0;
+  z-index:20;
+  height:var(--header-h);
+  min-height:var(--header-h);
+  padding-top:max(10px,env(safe-area-inset-top));
+  padding-left:max(16px,env(safe-area-inset-left));
+  padding-right:max(16px,env(safe-area-inset-right));
+}
 .brand-lockup{min-width:0}.brand-mark{display:grid;place-items:center;width:36px;height:36px;flex:0 0 36px;border-radius:11px;background:linear-gradient(145deg,#21253f,#121524);color:var(--accent);font-weight:800;font-size:19px;box-shadow:0 5px 18px #dd5f6833;overflow:hidden}.brand-mark img{width:100%;height:100%;object-fit:cover}.brand-lockup h1{font-size:14px}.brand-lockup p{white-space:nowrap}
 .assistant-main{min-height:calc(100svh - var(--header-h));height:calc(100svh - var(--header-h));padding:0 max(14px,env(safe-area-inset-left)) calc(var(--mode-h) + var(--composer-h) + 20px) max(14px,env(safe-area-inset-right));overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
 .welcome{padding:clamp(26px,10vh,78px) 8px 22px}.welcome-orb{width:48px;height:48px;margin-bottom:13px}.welcome h2{font-size:clamp(28px,8vw,40px)}.welcome-copy{max-width:360px}.suggestions{margin-top:16px}
