@@ -12,6 +12,56 @@ const INTERACTION = require('./interaction-brain');
 
 const PORT = Number(process.env.PORT || 8787);
 const API_TOKEN = process.env.EV_API_TOKEN || '';
+let agentRuntimePromise = null;
+
+async function getAgentRuntime() {
+  if (!agentRuntimePromise) {
+    agentRuntimePromise = import('./agent/index.mjs').then(({ createAgentRuntime }) =>
+      createAgentRuntime({
+        env: process.env,
+        fetchImpl: globalThis.fetch,
+        waitUntil: (promise) => {
+          Promise.resolve(promise).catch((error) => {
+            console.error('[agent] background task failed:', String(error?.message || error).slice(0, 200));
+          });
+        }
+      })
+    );
+  }
+  return agentRuntimePromise;
+}
+
+function readAgentBody(req) {
+  const contentType = String(req.headers['content-type'] || '').toLowerCase();
+  if (req.method !== 'POST' && req.method !== 'PUT' && req.method !== 'PATCH') return Promise.resolve({});
+  if (!contentType.startsWith('application/json')) {
+    const error = new Error('Content-Type must be application/json');
+    error.code = 'UNSUPPORTED_MEDIA_TYPE';
+    throw error;
+  }
+  return new Promise((resolve, reject) => {
+    let data = '';
+    req.on('data', chunk => {
+      data += chunk;
+      if (data.length > 262144) {
+        const error = new Error('Request body is too large');
+        error.code = 'REQUEST_TOO_LARGE';
+        reject(error);
+        req.destroy();
+      }
+    });
+    req.on('end', () => {
+      try {
+        resolve(data ? JSON.parse(data) : {});
+      } catch {
+        const error = new Error('Invalid JSON');
+        error.code = 'INVALID_JSON';
+        reject(error);
+      }
+    });
+    req.on('error', reject);
+  });
+}
 // ALLOWED_ORIGIN can hold one or more frontend URLs separated by commas.
 // Trailing slashes are ignored, so https://x.vercel.app/ and https://x.vercel.app both work.
 const ALLOWED_ORIGINS = String(process.env.ALLOWED_ORIGIN || '*')
@@ -358,6 +408,26 @@ const server=http.createServer(async(req,res)=>{
   res.setHeader('Vary', 'Origin');
   if(req.method==='OPTIONS') return json(res,204,{});
   const url=new URL(req.url,`http://${req.headers.host}`);
+  if(url.pathname === '/api/agent' || url.pathname.startsWith('/api/agent/')) {
+    try {
+      const runtime = await getAgentRuntime();
+      const body = await readAgentBody(req);
+      const ip = req.socket.remoteAddress || 'unknown';
+      const result = await runtime.api({
+        method: req.method,
+        pathname: url.pathname,
+        headers: req.headers,
+        body,
+        ip
+      });
+      if(result) return json(res,result.status,result.json);
+    } catch(error) {
+      if(error.code === 'INVALID_JSON') return json(res,400,{ok:false,code:'INVALID_JSON',message:'Invalid JSON'});
+      if(error.code === 'REQUEST_TOO_LARGE') return json(res,413,{ok:false,code:'REQUEST_TOO_LARGE',message:'Request body is too large'});
+      if(error.code === 'UNSUPPORTED_MEDIA_TYPE') return json(res,415,{ok:false,code:'UNSUPPORTED_MEDIA_TYPE',message:'Content-Type must be application/json'});
+      return json(res,500,{ok:false,code:'AGENT_INTERNAL',message:'The agent hit an internal error.'});
+    }
+  }
   if(req.method==='GET'&&url.pathname==='/api/health') return json(res,200,{ok:true,service:'ev-backend',explicitActionsOnly:true,backgroundReplies:false,whatsappBridge:Boolean(WPP_BRIDGE_URL&&WPP_BRIDGE_TOKEN),googleOAuth:true,skills:Object.keys(SKILLS),everydayTools:Object.keys(TOOL_REGISTRY)});
   if(req.method==='GET'&&url.pathname==='/api/interaction/brain') return json(res,200,{ok:true,capabilities:['acknowledgement','follow_up','clarification','emotion_tone','recent_context','opt_in_greeting_preview'],policy:INTERACTION.DEFAULT_POLICY,note:'No background messages or actions are performed.'});
   if(req.method==='POST'&&url.pathname==='/api/interaction/analyze') { const body=await readBody(req); return json(res,200,INTERACTION.analyze(body)); }
