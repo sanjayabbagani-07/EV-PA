@@ -2,13 +2,17 @@
 
 Thin, secure Android WebView wrapper around the deployed `frontend/`. Package ID remains `com.growthos.jarvis`; no backend credentials, API keys, or bundled secrets are embedded. The build-time URL must be HTTPS and defaults to the GitHub Pages frontend.
 
-## Android device pairing (Phase 1)
+## Android pairing and app control (Phases 1–3)
 - The existing Android app pairs from **Settings → Android companion** in the EV frontend. The owner signs in with `EV_OWNER_PASSPHRASE`, creates a one-time code, then pastes it into the pairing field and selects **Pair this phone**.
 - Pairing codes expire after five minutes and are single-use. The Android app exchanges the code with the existing `/api/agent` backend over HTTPS, stores the returned random device credential encrypted with Android Keystore AES-GCM, and sends an authenticated status heartbeat while the app is in the foreground.
 - **Disconnect this phone** revokes the backend credential before clearing local storage. If the backend cannot be reached, EV reports the failure and retains the credential so it does not claim revocation succeeded. The owner can also revoke active devices in the same settings panel.
 - The frontend and Android build must use the same backend origin. The frontend currently configures `EV_BACKEND_BASE` in `frontend/script.js`; `JARVIS_BACKEND_URL` configures the native companion.
-- Device metadata and credential hashes are currently held by the backend's in-memory store. A backend restart invalidates pairings and device credentials; pair again after restart. This is a foundation, not a durable production device registry.
-- The pairing/status phase adds no Android permission. It does not expose app discovery, launch, accessibility interaction, or remote command execution.
+- EV tools can list launchable apps, initiate app launches, open HTTP(S) links, navigate back, tap accessible controls, enter ordinary text, scroll, and read a limited visible-state summary. Launch and link results confirm Android accepted the launch intent; they do not prove the destination app finished loading.
+- Commands travel through the paired device's authenticated HTTPS polling channel. The phone must be online; keep EV open for app launch and URL actions. When Accessibility is enabled, its bound service keeps the command channel active while another app is foregrounded.
+- Accessible UI interaction is optional and user-enabled: in EV Settings choose **Open Android Accessibility Settings**, review **EV user-authorized app control**, and manually turn it on. The service does not inspect accessibility events; it reads visible labels only when an explicit `android.get_visible_state` action is requested, excludes editable values, and does not capture screenshots. Turn it off any time in Android Accessibility Settings.
+- The UI tools never enter passwords, verification codes, payment credentials, or other sensitive fields. EV cannot bypass login screens, CAPTCHAs, biometrics, or application security. App accessibility and navigation behavior varies.
+- Device metadata, capability status, and pending commands are currently held by the backend's in-memory store. A backend restart invalidates pairings and credentials; pair again after restart. This is not a durable production device registry.
+- Additional Android app-specific automation such as YouTube search/playback is not included; these phases provide generic app discovery, launching, and accessible interactions.
 
 ## Final EV wake experience
 - Wake is OFF by default and is never started at boot. The user explicitly enables it from the frontend and grants microphone/notification permissions.
@@ -24,14 +28,14 @@ A home-screen/locked-screen demonstration is **not claimed until physical OnePlu
 No bundled Porcupine/Vosk/wake-word model was added: shipping one would require selecting and complying with its license/model terms, increasing APK size, and validating Telugu-accent accuracy. The platform on-device recognizer is therefore used where available rather than pretending a legal offline keyword model exists.
 
 ## Build and test
-The current checkout does not declare a version for `com.android.application` in its Gradle plugin configuration. Gradle therefore fails during plugin resolution, before Java compilation; pin a compatible Android Gradle Plugin/Gradle pair and install Android SDK 35 before using these build commands.
+The project pins Android Gradle Plugin 8.7.3, which requires Gradle 8.9 and JDK 17; Android SDK 35 must also be installed. This repository does not include a Gradle wrapper, so use a compatible installed Gradle version.
 
 ```bash
-gradle --no-daemon assembleDebug
+gradle --no-daemon -p android :app:assembleDebug
 # optional URL override (must be HTTPS)
-gradle --no-daemon :app:assembleDebug -PJARVIS_START_URL=https://your-frontend.example/
+gradle --no-daemon -p android :app:assembleDebug -PJARVIS_START_URL=https://your-frontend.example/
 # backend URL override (must be HTTPS; no trailing slash required)
-gradle --no-daemon :app:assembleDebug -PJARVIS_BACKEND_URL=https://your-ev-backend.example
+gradle --no-daemon -p android :app:assembleDebug -PJARVIS_BACKEND_URL=https://your-ev-backend.example
 ```
 
-Install only after review with `adb install -r app/build/outputs/apk/debug/app-debug.apk`. On the OnePlus Nord CE3 5G, test cold start, explicit enable, denied mic/notification permission states, Telugu TTS voice data, “Hey EV” and “Hey EV”, bare wake + command, inline command, Stop EV, notification Stop EV, background/home screen, locked screen, force-stop, battery optimization, reconnect after process pressure, and WebView command delivery. Physical device testing and release signing remain required before production claims.
+Install with `adb install -r android/app/build/outputs/apk/debug/app-debug.apk`. On a Moto phone, pair it while EV is open; verify connection status, use **Run Android task** with “List launchable apps” and “Open Settings,” then manually enable the Accessibility Service. Return to EV and test “Go back,” tapping a visible non-sensitive element, typing into an ordinary search field without submitting it, scrolling, and requesting visible state. Confirm password/OTP fields are refused, disable the service in Settings, and verify EV reports it disabled. Physical-device testing remains required; no physical touch behavior is claimed until these steps have been performed on-device.

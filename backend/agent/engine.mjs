@@ -184,7 +184,13 @@ export class AgentEngine {
           if (!resp.text) return await this.#fail(task, 'EMPTY_RESPONSE', 'The AI returned an empty answer.');
           return await this.#finish(task, 'completed', { result: { text: resp.text } });
         }
-        st.queue = resp.functionCalls.map((c, i) => ({ callId: `${task.id.slice(0, 8)}-${st.modelCalls}-${i}`, name: c.name, args: c.args, geminiId: c.id }));
+        st.queue = resp.functionCalls.map((c, i) => ({
+          callId: `${task.id.slice(0, 8)}-${st.modelCalls}-${i}`,
+          name: this.registry.toolNameForModel(c.name) ?? c.name,
+          modelName: c.name,
+          args: c.args,
+          geminiId: c.id,
+        }));
         st.responseParts = [];
         this.#event(task, 'model', `Plan: ${st.queue.map((c) => c.name).join(', ')}`);
       }
@@ -293,13 +299,13 @@ export class AgentEngine {
       error: result.error ?? null, untrusted_data: result.data ?? null,
     };
     if (meta.sideEffects) payload.note = 'This action counts as done only if ok is true and verified is true.';
-    st.responseParts.push({ functionResponse: { name: call.name, ...(call.geminiId ? { id: call.geminiId } : {}), response: JSON.parse(JSON.stringify(payload)) } });
+    st.responseParts.push({ functionResponse: { name: call.modelName ?? call.name, ...(call.geminiId ? { id: call.geminiId } : {}), response: JSON.parse(JSON.stringify(payload)) } });
 
     const started = meta.startedAt ?? this.now();
     task.executions.push({
       id: call.callId, tool: call.name, status: meta.status ?? (result.ok ? 'succeeded' : 'failed'), ok: !!result.ok,
       verified: result.verified ?? null, sideEffects: !!meta.sideEffects,
-      args: argsPreview(call.args), error: result.error ? { code: result.error.code, message: redact(String(result.error.message || '')).slice(0, 300) } : null,
+      args: argsPreview(call.args, call.name), error: result.error ? { code: result.error.code, message: redact(String(result.error.message || '')).slice(0, 300) } : null,
       startedAt: iso(started), finishedAt: iso(this.now()), durationMs: Math.max(0, this.now() - started), approvalId: call.approvalId ?? null,
     });
     this.#event(task, 'tool', `${call.name}: ${meta.status ?? (result.ok ? 'succeeded' : 'failed')}`);
@@ -310,7 +316,7 @@ export class AgentEngine {
     const approval = {
       id: this.newId(), taskId: task.id, userId: task.userId, callId: call.callId, tool: call.name,
       summary: redact(verdict.summary || `Run ${call.name}`), category: verdict.category, reason: verdict.reason,
-      argsPreview: argsPreview(call.args), status: 'pending', createdAt: iso(this.now()),
+      argsPreview: argsPreview(call.args, call.name), status: 'pending', createdAt: iso(this.now()),
       expiresAt: this.now() + this.cfg.approvalTtlMs, decidedAt: null,
     };
     await this.store.createApproval(approval);
@@ -392,7 +398,10 @@ function failResult(tool, code, message) {
   return { tool, ok: false, error: { code, message, retryable: false }, verified: null, data: null };
 }
 
-function argsPreview(args) {
+function argsPreview(args, toolName) {
+  if (toolName === 'android.type_text') {
+    args = { target: args?.target, text: '[not stored]' };
+  }
   let s;
   try { s = JSON.stringify(redactDeep(args, { numbers: true })); } catch { s = '{}'; }
   return s.length > 600 ? `${s.slice(0, 600)}…` : s;

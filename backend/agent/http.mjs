@@ -22,14 +22,37 @@ function publicDevice(device, now) {
     platform: device.platform,
     status: device.status,
     connected: device.status === 'active' && Number.isFinite(lastSeen) && now - lastSeen <= DEVICE_ONLINE_MS,
+    accessibilityEnabled: device.accessibilityEnabled === true,
+    appDiscoveryAvailable: device.appDiscoveryAvailable === true,
     createdAt: device.createdAt,
     lastSeenAt: device.lastSeenAt,
     ...(device.revokedAt ? { revokedAt: device.revokedAt } : {}),
   };
 }
+function deviceFromRequest(headers, store, hashSecret) {
+  const token = bearerFrom(headers);
+  return /^[a-f0-9]{64}$/.test(token)
+    ? hashSecret(token).then((hash) => store.getDeviceByTokenHash(hash))
+    : Promise.resolve(null);
+}
 function hasOnlyKeys(value, allowed) {
   return value && typeof value === 'object' && !Array.isArray(value) &&
     Object.keys(value).every((key) => allowed.includes(key));
+}
+function validCommandResult(body) {
+  if (!hasOnlyKeys(body, ['ok', 'data', 'error', 'verified', 'verification']) || typeof body.ok !== 'boolean') return false;
+  if (body.verified !== undefined && typeof body.verified !== 'boolean') return false;
+  if (body.verification !== undefined && (typeof body.verification !== 'string' || body.verification.length > 300)) return false;
+  if (body.data !== undefined && body.data !== null) {
+    if (typeof body.data !== 'object') return false;
+    try { if (JSON.stringify(body.data).length > 24_000) return false; } catch { return false; }
+  }
+  if (body.error !== undefined && body.error !== null) {
+    if (!hasOnlyKeys(body.error, ['code', 'message', 'retryable']) ||
+        typeof body.error.code !== 'string' || body.error.code.length > 80 ||
+        typeof body.error.message !== 'string' || body.error.message.length > 500) return false;
+  }
+  return true;
 }
 
 function validTimeZone(tz) {
@@ -90,17 +113,25 @@ export function createAgentApi({ engine, store, registry, adapters, env = {}, wa
         createdAt: new Date(now()).toISOString(),
         lastSeenAt: new Date(now()).toISOString(),
         revokedAt: null,
+        accessibilityEnabled: false,
+        appDiscoveryAvailable: true,
       };
       await store.createDevice(device);
       return ok({ deviceId: device.id, deviceToken, device: publicDevice(device, now()) }, 201);
     }
 
     if (a === 'device' && b === 'status' && seg.length === 2) {
-      if (method !== 'GET') return err(405, 'METHOD_NOT_ALLOWED', 'Use GET.');
-      const token = bearerFrom(headers);
-      const device = /^[a-f0-9]{64}$/.test(token) ? await store.getDeviceByTokenHash(await hashSecret(token)) : null;
+      if (!['GET', 'POST'].includes(method)) return err(405, 'METHOD_NOT_ALLOWED', 'Use GET or POST.');
+      if (method === 'POST' && (!hasOnlyKeys(body, ['accessibilityEnabled', 'appDiscoveryAvailable']) ||
+          typeof body.accessibilityEnabled !== 'boolean' || typeof body.appDiscoveryAvailable !== 'boolean')) {
+        return err(400, 'INVALID_DEVICE_STATUS', 'Provide boolean accessibilityEnabled and appDiscoveryAvailable status fields.');
+      }
+      const device = await deviceFromRequest(headers, store, hashSecret);
       if (!device) return err(401, 'UNAUTHORIZED_DEVICE', 'A valid paired Android device credential is required.');
-      const active = await store.touchDevice(device.id, now());
+      const capabilities = method === 'POST'
+        ? { accessibilityEnabled: body.accessibilityEnabled, appDiscoveryAvailable: body.appDiscoveryAvailable }
+        : undefined;
+      const active = await store.touchDevice(device.id, now(), capabilities);
       if (!active) return err(401, 'UNAUTHORIZED_DEVICE', 'This Android device has been revoked.');
       return ok({ device: publicDevice(active, now()) });
     }
@@ -108,12 +139,32 @@ export function createAgentApi({ engine, store, registry, adapters, env = {}, wa
     if (a === 'device' && b === 'disconnect' && seg.length === 2) {
       if (method !== 'POST') return err(405, 'METHOD_NOT_ALLOWED', 'Use POST.');
       if (!hasOnlyKeys(body, [])) return err(400, 'INVALID_REQUEST', 'Device disconnect does not accept arguments.');
-      const token = bearerFrom(headers);
-      const device = /^[a-f0-9]{64}$/.test(token) ? await store.getDeviceByTokenHash(await hashSecret(token)) : null;
+      const device = await deviceFromRequest(headers, store, hashSecret);
       if (!device) return err(401, 'UNAUTHORIZED_DEVICE', 'A valid paired Android device credential is required.');
       const revoked = await store.revokeDevice(device.userId, device.id, now());
       if (!revoked) return err(401, 'UNAUTHORIZED_DEVICE', 'This Android device has already been revoked.');
       return ok({ deviceId: device.id, disconnected: true });
+    }
+
+    if (a === 'device' && b === 'commands' && c === 'next' && seg.length === 3) {
+      if (method !== 'GET') return err(405, 'METHOD_NOT_ALLOWED', 'Use GET.');
+      const device = await deviceFromRequest(headers, store, hashSecret);
+      if (!device) return err(401, 'UNAUTHORIZED_DEVICE', 'A valid paired Android device credential is required.');
+      const active = await store.touchDevice(device.id, now());
+      if (!active) return err(401, 'UNAUTHORIZED_DEVICE', 'This Android device has been revoked.');
+      return ok({ command: await store.claimNextDeviceCommand(device.id, now()) });
+    }
+
+    if (a === 'device' && b === 'commands' && c && seg[3] === 'result' && seg.length === 4) {
+      if (method !== 'POST') return err(405, 'METHOD_NOT_ALLOWED', 'Use POST.');
+      if (!/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(c) || !validCommandResult(body)) {
+        return err(400, 'INVALID_COMMAND_RESULT', 'Provide a valid command id and structured command result.');
+      }
+      const device = await deviceFromRequest(headers, store, hashSecret);
+      if (!device) return err(401, 'UNAUTHORIZED_DEVICE', 'A valid paired Android device credential is required.');
+      const accepted = await store.completeDeviceCommand(device.id, c, body, now());
+      if (!accepted) return err(409, 'COMMAND_NOT_PENDING', 'This command is unknown, expired, or was already completed.');
+      return ok({ commandId: c, accepted: true });
     }
 
     const claims = await verifyToken(bearerFrom(headers), secret, { scope: 'owner', now: now() });
@@ -122,16 +173,22 @@ export function createAgentApi({ engine, store, registry, adapters, env = {}, wa
 
     if (a === 'status' && seg.length === 1) {
       if (method !== 'GET') return err(405, 'METHOD_NOT_ALLOWED', 'Use GET.');
+      const ownerDevices = await store.listDevices(userId);
+      const androidDevices = ownerDevices.filter((device) => device.platform === 'android' && device.status === 'active');
+      const adapterStatus = adapters.status();
+      adapterStatus.android = {
+        state: store.hasConnectedDevice?.(userId) ? 'connected' : androidDevices.length ? 'disconnected' : 'not_configured',
+      };
       return ok({
         model: {
           configured: Boolean(env.GEMINI_API_KEY),
           name: String(env.GEMINI_MODEL || 'gemini-3.8-flash'),
           functionCalling: 'gemini-function-declarations',
         },
-        adapters: adapters.status(),
+        adapters: adapterStatus,
         tools: registry.list({ env: engine.toolEnv, userId }),
         limits: { maxSteps: engine.cfg.maxSteps, maxToolCalls: engine.cfg.maxToolCalls, approvalTtlMs: engine.cfg.approvalTtlMs },
-        persistence: { type: 'in_memory', durable: false, note: 'Tasks, approvals, memories, pairings, and device credentials are lost when the backend restarts.' },
+        persistence: { type: 'in_memory', durable: false, note: 'Tasks, approvals, memories, pairings, device credentials, and pending Android commands are lost when the backend restarts.' },
       });
     }
 

@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { AgentError } from '../errors.mjs';
 import { makeEngine, runTask, counterTool, echoTool } from './helpers.mjs';
+import { androidGetDeviceStatus } from '../tools/android.mjs';
 
 const lastUserParts = (call) => call.contents.at(-1).parts;
 
@@ -26,6 +27,23 @@ test('function-calling loop: call tool, observe result, then answer', async () =
   assert.deepEqual(fr.response.untrusted_data, { echoed: 'ping' }, 'observation is fed back as untrusted data');
   assert.equal(task.executions[0].status, 'succeeded');
   assert.deepEqual(task.result.toolsUsed, ['echo']);
+});
+
+test('namespaced Android tools use provider-safe aliases and retain canonical execution names', async () => {
+  const ctx = makeEngine({
+    script: [
+      { calls: [{ name: 'ev_android_get_device_status', args: {} }] },
+      { text: 'No paired Android devices are registered.' },
+    ],
+    tools: [androidGetDeviceStatus],
+  });
+  const task = await runTask(ctx, 'Check my Android device status.');
+
+  assert.equal(task.status, 'completed');
+  assert.deepEqual(ctx.model.seen[0].tools.map((tool) => tool.name), ['ev_android_get_device_status']);
+  assert.equal(ctx.model.seen[1].contents.at(-1).parts[0].functionResponse.name, 'ev_android_get_device_status');
+  assert.equal(task.executions[0].tool, 'android.get_device_status');
+  assert.equal(task.executions[0].status, 'succeeded');
 });
 
 test('multi-step: sequential calls, parallel calls answered in one turn, in order', async () => {

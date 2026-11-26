@@ -6,16 +6,20 @@ import { assertValidSchema, validate, toGeminiSchema } from './schema.mjs';
 import { ToolError } from './errors.mjs';
 import { redact, redactDeep } from './redact.mjs';
 
-const NAME_RE = /^[a-z][a-z0-9_]{1,40}$/;
+const NAME_RE = /^[a-z][a-z0-9_.]{1,40}$/;
 const PERMISSIONS = new Set(['auto', 'confirm', 'deny']);
 export const MAX_RESULT_CHARS = 6000;
 
 export class ToolRegistry {
   #tools = new Map();
+  #modelNames = new Map();
+  #toolNamesByModel = new Map();
 
   register(def) {
     if (!def || !NAME_RE.test(def.name || '')) throw new Error(`Invalid tool name: ${def?.name}`);
     if (this.#tools.has(def.name)) throw new Error(`Tool already registered: ${def.name}`);
+    const modelName = def.name.includes('.') ? `ev_${def.name.replaceAll('.', '_')}` : def.name;
+    if (this.#toolNamesByModel.has(modelName)) throw new Error(`${def.name}: model function name conflicts with another tool`);
     if (!def.description || def.description.length < 10) throw new Error(`${def.name}: description is required`);
     if (typeof def.run !== 'function') throw new Error(`${def.name}: run() is required`);
     const permission = def.permission ?? 'confirm'; // safe default: ask
@@ -26,12 +30,21 @@ export class ToolRegistry {
     const timeoutMs = def.timeoutMs ?? 10_000;
     if (!Number.isInteger(timeoutMs) || timeoutMs < 100 || timeoutMs > 120_000) throw new Error(`${def.name}: timeoutMs out of range`);
     this.#tools.set(def.name, Object.freeze({ sideEffects: false, ...def, permission, parameters, timeoutMs }));
+    this.#modelNames.set(def.name, modelName);
+    this.#toolNamesByModel.set(modelName, def.name);
     return this;
   }
 
-  unregister(name) { return this.#tools.delete(name); }
+  unregister(name) {
+    const modelName = this.#modelNames.get(name);
+    if (!this.#tools.delete(name)) return false;
+    this.#modelNames.delete(name);
+    if (modelName) this.#toolNamesByModel.delete(modelName);
+    return true;
+  }
   has(name) { return this.#tools.has(name); }
   get(name) { return this.#tools.get(name); }
+  toolNameForModel(name) { return this.#toolNamesByModel.get(name) ?? null; }
   names() { return [...this.#tools.keys()]; }
 
   availability(tool, ctx = {}) {
@@ -57,7 +70,7 @@ export class ToolRegistry {
   declarations(ctx = {}) {
     return [...this.#tools.values()]
       .filter((t) => this.availability(t, ctx).available)
-      .map((t) => ({ name: t.name, description: t.description, parameters: toGeminiSchema(t.parameters) }));
+      .map((t) => ({ name: this.#modelNames.get(t.name), description: t.description, parameters: toGeminiSchema(t.parameters) }));
   }
 
   validateArgs(name, rawArgs) {

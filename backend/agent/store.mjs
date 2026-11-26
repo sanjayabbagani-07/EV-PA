@@ -2,6 +2,7 @@
 // (Cloudflare KV/D1/Durable Objects, Redis, Postgres) can replace it without engine changes.
 // NOTE: state is lost on restart (Render free plan sleeps). Swap this adapter before relying on history.
 const DAY = 24 * 60 * 60 * 1000;
+const DEVICE_ONLINE_MS = 90_000;
 const TERMINAL = new Set(['completed', 'failed', 'cancelled', 'timed_out']);
 
 export class InMemoryStore {
@@ -10,6 +11,8 @@ export class InMemoryStore {
   #memories = new Map();
   #pairings = new Map();
   #devices = new Map();
+  #deviceCommands = new Map();
+  #deviceCommandWaiters = new Map();
   constructor({ now = () => Date.now(), maxTasksPerUser = 100, maxMemoriesPerUser = 100, finishedTtlMs = DAY } = {}) {
     this.now = now;
     this.maxTasksPerUser = maxTasksPerUser;
@@ -100,11 +103,116 @@ export class InMemoryStore {
       .filter((device) => device.userId === userId)
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
-  async touchDevice(id, now = this.now()) {
+  async touchDevice(id, now = this.now(), capabilities) {
     const device = this.#devices.get(id);
     if (!device || device.status !== 'active') return null;
     device.lastSeenAt = new Date(now).toISOString();
+    if (capabilities) {
+      device.accessibilityEnabled = capabilities.accessibilityEnabled;
+      device.appDiscoveryAvailable = capabilities.appDiscoveryAvailable;
+    }
     return device;
+  }
+  hasConnectedDevice(userId) {
+    const now = this.now();
+    return [...this.#devices.values()].some((device) =>
+      device.userId === userId && device.platform === 'android' && device.status === 'active' &&
+      Number.isFinite(Date.parse(device.lastSeenAt || '')) && now - Date.parse(device.lastSeenAt) <= DEVICE_ONLINE_MS
+    );
+  }
+  async createDeviceCommand(command) {
+    const device = this.#devices.get(command.deviceId);
+    if (!device || device.userId !== command.userId || device.status !== 'active' ||
+        !Number.isFinite(Date.parse(device.lastSeenAt || '')) || command.createdAt - Date.parse(device.lastSeenAt) > DEVICE_ONLINE_MS) {
+      return null;
+    }
+    this.#deviceCommands.set(command.id, { ...command, status: 'queued', result: null });
+    return this.#deviceCommands.get(command.id);
+  }
+  async claimNextDeviceCommand(deviceId, now = this.now()) {
+    for (const command of this.#deviceCommands.values()) {
+      if (command.deviceId !== deviceId || command.status !== 'queued') continue;
+      if (command.expiresAt <= now) {
+        this.#finishDeviceCommand(command, {
+          ok: false,
+          error: { code: 'COMMAND_EXPIRED', message: 'The Android command expired before delivery.' },
+          verified: false,
+        }, 'expired');
+        continue;
+      }
+      command.status = 'dispatched';
+      command.dispatchedAt = new Date(now).toISOString();
+      return {
+        id: command.id,
+        action: command.action,
+        arguments: command.arguments,
+        expiresAt: command.expiresAt,
+      };
+    }
+    return null;
+  }
+  async completeDeviceCommand(deviceId, id, result, now = this.now()) {
+    const command = this.#deviceCommands.get(id);
+    if (!command || command.deviceId !== deviceId || command.status !== 'dispatched') return false;
+    this.#finishDeviceCommand(command, result, result.ok ? 'completed' : 'failed', now);
+    return true;
+  }
+  waitForDeviceCommand(id, { signal, timeoutMs = 30_000 } = {}) {
+    const command = this.#deviceCommands.get(id);
+    if (!command) return Promise.resolve(null);
+    if (command.status === 'completed' || command.status === 'failed' || command.status === 'expired' || command.status === 'cancelled') {
+      return Promise.resolve(command.result);
+    }
+    return new Promise((resolve) => {
+      let timer;
+      const finish = (result) => {
+        clearTimeout(timer);
+        signal?.removeEventListener('abort', onAbort);
+        this.#deviceCommandWaiters.delete(id);
+        resolve(result);
+      };
+      const onAbort = () => finish({
+        ok: false,
+        error: { code: 'CANCELLED', message: 'Android command was cancelled.' },
+        verified: false,
+      });
+      this.#deviceCommandWaiters.set(id, finish);
+      timer = setTimeout(() => {
+        const current = this.#deviceCommands.get(id);
+        if (current && (current.status === 'queued' || current.status === 'dispatched')) {
+          this.#finishDeviceCommand(current, {
+            ok: false,
+            error: { code: 'COMMAND_TIMEOUT', message: 'The Android device did not complete the command in time.' },
+            verified: false,
+          }, 'expired');
+        }
+        finish(this.#deviceCommands.get(id)?.result ?? null);
+      }, timeoutMs);
+      if (signal?.aborted) onAbort();
+      else signal?.addEventListener('abort', onAbort, { once: true });
+    });
+  }
+  async cancelDeviceCommand(id) {
+    const command = this.#deviceCommands.get(id);
+    if (!command || ['completed', 'failed', 'expired', 'cancelled'].includes(command.status)) return false;
+    this.#finishDeviceCommand(command, {
+      ok: false,
+      error: { code: 'CANCELLED', message: 'Android command was cancelled.' },
+      verified: false,
+    }, 'cancelled');
+    return true;
+  }
+  async deleteDeviceCommand(id) {
+    const command = this.#deviceCommands.get(id);
+    if (!command || command.status === 'queued' || command.status === 'dispatched') return false;
+    this.#deviceCommands.delete(id);
+    return true;
+  }
+  #finishDeviceCommand(command, result, status, now = this.now()) {
+    command.status = status;
+    command.finishedAt = new Date(now).toISOString();
+    command.result = result;
+    this.#deviceCommandWaiters.get(command.id)?.(result);
   }
   async revokeDevice(userId, id, now = this.now()) {
     const device = this.#devices.get(id);
@@ -112,6 +220,15 @@ export class InMemoryStore {
     device.status = 'revoked';
     device.tokenHash = null;
     device.revokedAt = new Date(now).toISOString();
+    for (const command of this.#deviceCommands.values()) {
+      if (command.deviceId === id && (command.status === 'queued' || command.status === 'dispatched')) {
+        this.#finishDeviceCommand(command, {
+          ok: false,
+          error: { code: 'DEVICE_REVOKED', message: 'The paired Android device was revoked.' },
+          verified: false,
+        }, 'cancelled', now);
+      }
+    }
     return true;
   }
 

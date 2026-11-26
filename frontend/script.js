@@ -38,7 +38,13 @@ document.addEventListener("DOMContentLoaded", () => {
     const androidDisconnectButton = document.getElementById("android-disconnect-device");
     const androidRefreshDevicesButton = document.getElementById("android-refresh-devices");
     const androidDeviceStatus = document.getElementById("android-device-status");
+    const androidAccessibilityStatus = document.getElementById("android-accessibility-status");
+    const androidAccessibilitySettingsButton = document.getElementById("android-accessibility-settings");
     const androidDeviceList = document.getElementById("android-device-list");
+    const androidAgentCommand = document.getElementById("android-agent-command");
+    const androidAgentRunButton = document.getElementById("android-agent-run");
+    const androidAgentStatus = document.getElementById("android-agent-status");
+    const androidAgentApproval = document.getElementById("android-agent-approval");
     if (sendButton) sendButton.addEventListener("click", sendMessage);
     const MEMORY_KEY = "ev_pa_chat_memory";
     const ARCHIVE_KEY = "ev_conversation_archive_v1";
@@ -121,14 +127,14 @@ document.addEventListener("DOMContentLoaded", () => {
         return data.result || {};
     }
 
-    async function androidAgentRequest(path, { method = "GET", token = "", body } = {}) {
+    async function androidAgentRequest(path, { method = "GET", token = "", body, timeoutMs = 15000 } = {}) {
         const headers = { "Content-Type": "application/json" };
         if (token) headers.Authorization = `Bearer ${token}`;
         const response = await fetch(`${EV_BACKEND_BASE}/api/agent${path}`, {
             method,
             headers,
             ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-            signal: AbortSignal.timeout(15000)
+            signal: AbortSignal.timeout(timeoutMs)
         });
         const data = await response.json().catch(() => ({}));
         if (!response.ok || !data.ok) {
@@ -146,18 +152,34 @@ document.addEventListener("DOMContentLoaded", () => {
         androidDeviceStatus.classList.toggle("is-error", state === "error");
     }
 
+    function setAndroidAccessibilityStatus(device) {
+        if (!androidAccessibilityStatus) return;
+        if (!device) {
+            androidAccessibilityStatus.textContent = "Accessibility status is not available until a paired phone reports in.";
+            androidAccessibilityStatus.classList.remove("is-saved", "is-error");
+            return;
+        }
+        androidAccessibilityStatus.textContent = device.accessibilityEnabled
+            ? "EV Accessibility Service is enabled on the paired phone."
+            : "EV Accessibility Service is disabled. App launch and URL opening remain available; UI interaction is unavailable.";
+        androidAccessibilityStatus.classList.toggle("is-saved", device.accessibilityEnabled === true);
+        androidAccessibilityStatus.classList.remove("is-error");
+    }
+
     function renderAndroidDevices(devices = []) {
         if (!androidDeviceList) return;
         androidDeviceList.replaceChildren();
         if (!devices.length) {
             androidDeviceList.textContent = "No Android devices are paired to this owner account.";
+            setAndroidAccessibilityStatus(null);
             return;
         }
         for (const device of devices) {
             const row = document.createElement("div");
             row.className = "android-device-row";
             const label = document.createElement("span");
-            label.textContent = `${device.name} · ${device.connected ? "connected" : device.status === "active" ? "offline" : "revoked"}`;
+            const connection = device.connected ? "connected" : device.status === "active" ? "offline" : "revoked";
+            label.textContent = `${device.name} · ${connection} · apps ${device.appDiscoveryAvailable ? "available" : "unavailable"} · Accessibility ${device.accessibilityEnabled ? "enabled" : "disabled"}`;
             row.appendChild(label);
             if (device.status === "active") {
                 const revoke = document.createElement("button");
@@ -180,6 +202,7 @@ document.addEventListener("DOMContentLoaded", () => {
             }
             androidDeviceList.appendChild(row);
         }
+        setAndroidAccessibilityStatus(devices.find((device) => device.connected) || devices.find((device) => device.status === "active") || null);
     }
 
     async function loadAndroidDevices() {
@@ -275,6 +298,86 @@ document.addEventListener("DOMContentLoaded", () => {
         }
         setAndroidDeviceStatus("Revoking this device credential…");
         window.JarvisNative.disconnectAndroidDevice();
+    }
+
+    function renderAndroidAgentTask(task) {
+        if (!androidAgentStatus) return;
+        androidAgentApproval?.replaceChildren();
+        if (androidAgentApproval) androidAgentApproval.hidden = true;
+        if (task?.status === "awaiting_approval" && task.pendingApproval) {
+            const approval = task.pendingApproval;
+            androidAgentStatus.textContent = `EV paused for your approval: ${approval.summary}.`;
+            if (!androidAgentApproval) return;
+            androidAgentApproval.hidden = false;
+            const explanation = document.createElement("p");
+            explanation.textContent = approval.reason || "This Android action requires your explicit approval.";
+            androidAgentApproval.appendChild(explanation);
+            for (const [decision, label] of [["approve", "Approve once"], ["reject", "Decline"]]) {
+                const button = document.createElement("button");
+                button.type = "button";
+                button.className = decision === "approve" ? "api-key-save" : "api-key-clear";
+                button.textContent = label;
+                button.addEventListener("click", () => resolveAndroidAgentApproval(approval.id, decision));
+                androidAgentApproval.appendChild(button);
+            }
+        } else if (task?.status === "completed") {
+            androidAgentStatus.textContent = task.result?.text || "EV completed the Android task without a text response.";
+        } else if (task?.status === "failed") {
+            androidAgentStatus.textContent = task.error?.message || "The Android task failed.";
+        } else {
+            androidAgentStatus.textContent = `Android task status: ${task?.status || "unknown"}.`;
+        }
+    }
+
+    async function resolveAndroidAgentApproval(id, decision) {
+        if (!androidOwnerToken) return;
+        if (decision === "approve" && !window.confirm("Allow this Android action to run once?")) return;
+        androidAgentApproval?.querySelectorAll("button").forEach((button) => { button.disabled = true; });
+        if (androidAgentStatus) androidAgentStatus.textContent = decision === "approve" ? "Running the approved Android action…" : "Declining the Android action…";
+        try {
+            const data = await androidAgentRequest(`/approvals/${encodeURIComponent(id)}`, {
+                method: "POST",
+                token: androidOwnerToken,
+                body: { decision, wait: true },
+                timeoutMs: 70000
+            });
+            renderAndroidAgentTask(data.task);
+        } catch (error) {
+            if (androidAgentStatus) androidAgentStatus.textContent = error.message;
+            androidAgentApproval?.querySelectorAll("button").forEach((button) => { button.disabled = false; });
+        }
+    }
+
+    async function runAndroidAgentTask() {
+        const text = androidAgentCommand?.value.trim() || "";
+        if (!androidOwnerToken) {
+            if (androidAgentStatus) androidAgentStatus.textContent = "Sign in with the EV owner passphrase before running Android tasks.";
+            androidOwnerPassphrase?.focus();
+            return;
+        }
+        if (!text) {
+            if (androidAgentStatus) androidAgentStatus.textContent = "Enter an instruction for the paired Android phone.";
+            androidAgentCommand?.focus();
+            return;
+        }
+        androidAgentRunButton.disabled = true;
+        if (androidAgentStatus) androidAgentStatus.textContent = "EV is planning and executing the Android task. Keep the paired phone connected.";
+        androidAgentApproval?.replaceChildren();
+        if (androidAgentApproval) androidAgentApproval.hidden = true;
+        try {
+            const data = await androidAgentRequest("/tasks", {
+                method: "POST",
+                token: androidOwnerToken,
+                body: { text, wait: true },
+                timeoutMs: 70000
+            });
+            if (androidAgentCommand) androidAgentCommand.value = "";
+            renderAndroidAgentTask(data.task);
+        } catch (error) {
+            if (androidAgentStatus) androidAgentStatus.textContent = error.message;
+        } finally {
+            androidAgentRunButton.disabled = false;
+        }
     }
 
     async function checkBackendStatus() {
@@ -1427,6 +1530,14 @@ async function startNewConversation() {
             setAndroidDeviceStatus(error.message, "error");
         }
     });
+    androidAccessibilitySettingsButton?.addEventListener("click", () => {
+        if (window.JarvisNative?.openAccessibilitySettings) window.JarvisNative.openAccessibilitySettings();
+        else setAndroidAccessibilityStatus(null);
+    });
+    androidAgentRunButton?.addEventListener("click", runAndroidAgentTask);
+    androidAgentCommand?.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) { event.preventDefault(); runAndroidAgentTask(); }
+    });
     androidPairingCode?.addEventListener("keydown", (event) => {
         if (event.key === "Enter") { event.preventDefault(); pairAndroidCompanion(); }
     });
@@ -1453,6 +1564,7 @@ async function startNewConversation() {
         } else if (result?.ok && result.device) {
             const state = result.device.connected ? "connected" : "";
             setAndroidDeviceStatus(`${result.device.name || "Android device"} is ${result.device.connected ? "connected" : "paired but offline"}.`, state);
+            setAndroidAccessibilityStatus(result.device);
         } else {
             setAndroidDeviceStatus(result?.message || "Android device status is unavailable.", result?.error ? "error" : "");
         }

@@ -10,7 +10,7 @@
   <link rel="stylesheet" href="layout-fix.css?v=two-mode-1">
   <link rel="stylesheet" href="overrides.css?v=ev-spacing-fix-1">
   <link rel="stylesheet" href="social-agent.css?v=local-preview-1">
-  <link rel="stylesheet" href="professional-ui.css?v=android-pairing-1">
+  <link rel="stylesheet" href="professional-ui.css?v=android-control-2">
   <link rel="stylesheet" href="motion-enhancements.css?v=0.1.0">
   <link rel="stylesheet" href="kalki-effects.css?v=3">
   <style>.advanced-intelligence-panel{margin:18px auto 0;max-width:760px;border:1px solid rgba(255,61,74,.28);border-radius:18px;background:linear-gradient(145deg,rgba(25,29,42,.92),rgba(12,15,24,.9));box-shadow:0 14px 40px #0004;overflow:hidden}.ai-panel-head{display:flex;justify-content:space-between;align-items:center;padding:14px 16px}.ai-panel-head strong,.ai-panel-head small{display:block}.ai-panel-head small{color:var(--muted);font-size:10px;margin-top:4px}.ai-collapse{border:1px solid var(--line);border-radius:10px;background:transparent;color:var(--text);font-size:18px}.ai-panel-body{padding:0 16px 16px}.ai-status-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:7px}.ai-status-grid span{padding:8px;border:1px solid var(--line);border-radius:10px;background:#ffffff05}.ai-status-grid b,.ai-status-grid em{display:block;font-size:10px}.ai-status-grid b{text-transform:capitalize;color:var(--muted)}.ai-status-grid em{font-style:normal;color:#f0b48c;margin-top:3px}.ai-status-grid em.on{color:var(--green)}.ai-actions{display:flex;gap:7px;flex-wrap:wrap;margin:12px 0}.ai-actions button,.ai-plan button{border:1px solid var(--line);border-radius:10px;padding:9px;background:#ffffff08;color:var(--text);font-size:11px}.ai-plan label{display:block;color:var(--muted);font-size:11px;margin-bottom:5px}.ai-plan textarea{width:100%;box-sizing:border-box;resize:vertical;border:1px solid var(--line);border-radius:10px;padding:9px;background:#090b11;color:var(--text);font:inherit;font-size:12px}.ai-plan button{margin-top:7px}.ai-unavailable{color:var(--muted);font-size:10px;line-height:1.4;margin:12px 0 0}@media(max-width:560px){.ai-status-grid{grid-template-columns:repeat(2,1fr)}.ai-actions button{flex:1 1 45%}}</style>
@@ -153,7 +153,7 @@
       </section>
       <section class="desktop-agent-settings" aria-labelledby="android-device-title">
         <div class="voice-setting-heading"><strong id="android-device-title">Android companion</strong><small>Securely pair this EV phone with your owner account.</small></div>
-        <p class="desktop-agent-note">Pairing enables device identity and connection status only. App discovery and control are not available yet. Pairing codes expire after five minutes and work once.</p>
+        <p class="desktop-agent-note">Pairing enables launchable-app discovery and app/URL launching. Accessible UI actions require you to enable EV’s Accessibility Service manually. Pairing codes expire after five minutes and work once.</p>
         <label class="api-key-label" for="android-owner-passphrase">EV owner passphrase</label>
         <input id="android-owner-passphrase" class="api-key-input" type="password" autocomplete="current-password" maxlength="200" placeholder="Entered only to request a pairing code">
         <div class="api-key-actions"><button id="android-owner-sign-in" type="button" class="api-key-save">Sign in &amp; load devices</button><button id="android-create-pairing" type="button" class="api-key-clear">Create pairing code</button><button id="android-refresh-devices" type="button" class="api-key-clear">Refresh devices</button></div>
@@ -161,7 +161,15 @@
         <input id="android-pairing-code" class="api-key-input" type="text" inputmode="text" autocomplete="one-time-code" autocapitalize="off" spellcheck="false" maxlength="48" pattern="[a-f0-9]{48}" placeholder="Paste the code on the EV Android app">
         <div class="api-key-actions"><button id="android-pair-device" type="button" class="api-key-save">Pair this phone</button><button id="android-disconnect-device" type="button" class="api-key-clear">Disconnect this phone</button></div>
         <p id="android-device-status" class="api-key-status" role="status" aria-live="polite">Checking Android companion availability…</p>
+        <p id="android-accessibility-status" class="api-key-status" role="status" aria-live="polite">Accessibility status is not available until a paired phone reports in.</p>
+        <div class="api-key-actions"><button id="android-accessibility-settings" type="button" class="api-key-clear">Open Android Accessibility Settings</button></div>
+        <p class="desktop-agent-note">To authorize UI interaction: open Accessibility Settings, select “EV user-authorized app control,” review the explanation, and enable it yourself. Return to EV to refresh status. You can turn it off at any time in Android Settings.</p>
         <div id="android-device-list" class="api-key-status" aria-live="polite"></div>
+        <label class="api-key-label" for="android-agent-command">Ask EV to control the paired Android phone</label>
+        <textarea id="android-agent-command" class="api-key-input" rows="3" maxlength="1000" placeholder="For example: List launchable apps on my paired phone."></textarea>
+        <div class="api-key-actions"><button id="android-agent-run" type="button" class="api-key-save">Run Android task</button></div>
+        <p id="android-agent-status" class="api-key-status" role="status" aria-live="polite">Sign in with the owner passphrase above before running a task.</p>
+        <div id="android-agent-approval" class="android-agent-approval" hidden></div>
         <p class="voice-setting-status">The passphrase and owner session are kept in page memory only. Device credentials are stored encrypted by Android and can be revoked here or from the paired phone.</p>
       </section>
       <section id="gemini-api-settings" class="api-key-settings" aria-labelledby="gemini-key-title">
@@ -178,7 +186,7 @@
   </aside>
   <div class="sheet-backdrop"></div>
 
-  <script src="script.js?v=android-pairing-1"></script>
+  <script src="script.js?v=android-control-2"></script>
   <script src="advanced-intelligence.js"></script>
   <script src="social-agent.js?v=local-preview-1"></script>
   <script>

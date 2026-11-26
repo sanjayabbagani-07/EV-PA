@@ -20,14 +20,17 @@ final class DeviceControlClient {
     }
 
     private final String backendUrl;
+    private final Context context;
     private final EventSink sink;
     private final DeviceCredentialStore credentials;
     private final ExecutorService requests = Executors.newSingleThreadExecutor();
     private final AtomicBoolean pairingInFlight = new AtomicBoolean();
     private final AtomicBoolean statusInFlight = new AtomicBoolean();
+    private final AtomicBoolean commandInFlight = new AtomicBoolean();
 
     DeviceControlClient(Context context, EventSink sink) {
         this.sink = sink;
+        this.context = context.getApplicationContext();
         this.credentials = new DeviceCredentialStore(context);
         try {
             java.net.URI configured = new java.net.URI(BuildConfig.JARVIS_BACKEND_URL.trim());
@@ -94,12 +97,45 @@ final class DeviceControlClient {
                     emit("ev-android-device-status", noDeviceResult());
                     return;
                 }
-                JSONObject response = request("GET", "/api/agent/device/status", null, token);
+                JSONObject capabilities = new JSONObject();
+                capabilities.put("accessibilityEnabled", EVAccessibilityService.isEnabled(context));
+                capabilities.put("appDiscoveryAvailable", AndroidCommandExecutor.appDiscoveryAvailable(context));
+                JSONObject response = request("POST", "/api/agent/device/status", capabilities, token);
                 emit("ev-android-device-status", response.toString());
             } catch (Exception error) {
                 emit("ev-android-device-status", result(false, deviceError(error)));
             } finally {
                 statusInFlight.set(false);
+            }
+        });
+    }
+
+    void pollCommand() {
+        if (!commandInFlight.compareAndSet(false, true)) return;
+        requests.execute(() -> {
+            try {
+                String token = credentials.read();
+                if (token == null) return;
+                JSONObject response = request("GET", "/api/agent/device/commands/next", null, token);
+                JSONObject command = response.optJSONObject("command");
+                if (command == null) return;
+                JSONObject result = AndroidCommandExecutor.execute(context, command);
+                String commandId = command.optString("id", "");
+                if (!commandId.matches("[0-9a-fA-F-]{36}")) {
+                    emitCommandResult(command.optString("action", ""), false, "Android received an invalid command identifier.");
+                    return;
+                }
+                JSONObject ack = request("POST", "/api/agent/device/commands/" + commandId + "/result", result, token);
+                if (!ack.optBoolean("accepted")) {
+                    emitCommandResult(command.optString("action", ""), false, "The EV backend did not confirm the command result.");
+                    return;
+                }
+                emitCommandResult(command.optString("action", ""), result.optBoolean("ok"),
+                        result.optJSONObject("error") == null ? "" : result.optJSONObject("error").optString("message", ""));
+            } catch (Exception error) {
+                emitCommandResult("", false, deviceError(error));
+            } finally {
+                commandInFlight.set(false);
             }
         });
     }
@@ -196,6 +232,22 @@ final class DeviceControlClient {
 
     private static String noDeviceResult() {
         return "{\"ok\":true,\"paired\":false,\"message\":\"No Android device is paired.\"}";
+    }
+
+    private void emit(String event, String payload) {
+        sink.emit(event, payload);
+    }
+
+    private void emitCommandResult(String action, boolean ok, String message) {
+        try {
+            JSONObject result = new JSONObject();
+            result.put("ok", ok);
+            result.put("action", action);
+            if (!message.isEmpty()) result.put("message", message);
+            emit("ev-android-command-result", result.toString());
+        } catch (Exception ignored) {
+            emit("ev-android-command-result", "{\"ok\":false,\"message\":\"Android command result unavailable.\"}");
+        }
     }
 
     private String deviceError(Exception error) {

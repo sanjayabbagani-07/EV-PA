@@ -46,7 +46,11 @@ test('device pairing is authenticated, single-use, and returns a revocable crede
   assert.equal(paired.json.device.name, 'EV phone');
   assert.equal(paired.json.device.connected, true);
   assert.ok(!JSON.stringify(paired.json.device).includes(paired.json.deviceToken));
-  assert.equal((await h.call('POST', '/api/agent/device/status', { token: paired.json.deviceToken })).status, 405);
+  const deviceStatus = await h.call('POST', '/api/agent/device/status', {
+    token: paired.json.deviceToken,
+    body: { accessibilityEnabled: false, appDiscoveryAvailable: true },
+  });
+  assert.equal(deviceStatus.status, 200);
   assert.equal((await h.call('POST', '/api/agent/device/disconnect', {
     token: paired.json.deviceToken,
     body: { unexpected: true },
@@ -134,6 +138,49 @@ test('owner device routes never expose or revoke another account device', async 
   const revoke = await h.call('POST', `/api/agent/devices/${foreignId}/revoke`, { token: ownerToken });
   assert.deepEqual([revoke.status, revoke.json.code], [404, 'DEVICE_NOT_FOUND']);
   assert.equal((await h.runtime.store.getDevice(foreignId)).status, 'active');
+});
+
+test('Android status reports capabilities and authenticated command polling is single-use', async () => {
+  const h = harness();
+  const ownerToken = await h.login();
+  const pairing = await h.call('POST', '/api/agent/devices/pairings', { token: ownerToken });
+  const paired = await h.call('POST', '/api/agent/device/pair', {
+    body: { code: pairing.json.code, name: 'EV phone', platform: 'android' },
+  });
+  const deviceToken = paired.json.deviceToken;
+
+  assert.equal((await h.call('GET', '/api/agent/device/commands/next')).status, 401);
+  assert.equal((await h.call('POST', '/api/agent/device/status', {
+    token: deviceToken,
+    body: { accessibilityEnabled: 'yes', appDiscoveryAvailable: true },
+  })).json.code, 'INVALID_DEVICE_STATUS');
+  const status = await h.call('POST', '/api/agent/device/status', {
+    token: deviceToken,
+    body: { accessibilityEnabled: true, appDiscoveryAvailable: true },
+  });
+  assert.equal(status.json.device.accessibilityEnabled, true);
+
+  const id = '11111111-1111-4111-8111-111111111111';
+  assert.ok(await h.runtime.store.createDeviceCommand({
+    id,
+    userId: 'owner',
+    deviceId: paired.json.deviceId,
+    action: 'open_app',
+    arguments: { app_name: 'Maps' },
+    createdAt: h.clock.now(),
+    expiresAt: h.clock.now() + 30_000,
+  }));
+  const delivered = await h.call('GET', '/api/agent/device/commands/next', { token: deviceToken });
+  assert.deepEqual(delivered.json.command, {
+    id,
+    action: 'open_app',
+    arguments: { app_name: 'Maps' },
+    expiresAt: h.clock.now() + 30_000,
+  });
+  assert.equal((await h.call('GET', '/api/agent/device/commands/next', { token: deviceToken })).json.command, null);
+  const result = { ok: true, data: { app: 'Maps' }, verified: true, verification: 'Launch intent accepted.' };
+  assert.equal((await h.call('POST', `/api/agent/device/commands/${id}/result`, { token: deviceToken, body: result })).json.accepted, true);
+  assert.equal((await h.call('POST', `/api/agent/device/commands/${id}/result`, { token: deviceToken, body: result })).status, 409);
 });
 
 test('pairing code creation is rate-limited per authenticated owner', async () => {

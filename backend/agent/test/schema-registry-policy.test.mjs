@@ -56,6 +56,7 @@ test('registry: registration rules', () => {
   r.register({ name: 'ok_tool', description: 'long enough desc', run });
   assert.equal(r.get('ok_tool').permission, 'confirm', 'defaults to the safe permission');
   assert.throws(() => r.register({ name: 'ok_tool', description: 'long enough desc', run }), /already registered/);
+  assert.doesNotThrow(() => r.register({ name: 'android.test_tool', description: 'A namespaced Android tool.', run }));
 });
 
 test('registry: only available tools are declared to the model', () => {

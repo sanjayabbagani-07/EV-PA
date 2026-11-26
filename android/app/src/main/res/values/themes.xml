@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="accessibility_service_label">EV user-authorized app control</string>
+    <string name="accessibility_service_description">Lets EV act on accessible app controls only when you request an action. EV does not continuously capture or upload your screen. Never use EV to bypass app security.</string>
     <style name="Theme.Jarvis" parent="android:style/Theme.Material.NoActionBar">
         <item name="android:fontFamily">sans</item><item name="android:colorAccent">#ff3b46</item>
         <item name="android:navigationBarColor">#05060f</item><item name="android:statusBarColor">#05060f</item>
