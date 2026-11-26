@@ -2,9 +2,10 @@ import { ToolError } from '../errors.mjs';
 
 const DEVICE_ONLINE_MS = 90_000;
 const COMMAND_TIMEOUT_MS = 30_000;
-const ACCESSIBILITY_ACTIONS = new Set(['go_back', 'tap_element', 'type_text', 'scroll', 'get_visible_state']);
+const ACCESSIBILITY_ACTIONS = new Set(['go_back', 'tap_element', 'type_text', 'scroll', 'get_visible_state', 'search_in_app']);
 const sensitiveTarget = /\b(password|passcode|passwd|pin|otp|code|verification|one[- ]time|2fa|mfa|cvv|cvc|card number|payment|security code|ssn)\b/i;
 const sensitiveValue = /^(?:\d{4,8}|(?:\d[ -]?){13,19})$/;
+const searchSubmitTarget = /^(search|find|go|शोध|ढूँढ|వెతు|శోధ)$/i;
 
 function connectedDevices(ctx) {
   const now = ctx.now();
@@ -34,7 +35,7 @@ function availability(ctx) {
 
 function makeCommandTool({
   name, description, action, required = [], properties = {}, sideEffects = false,
-  permission = 'auto', scanArgs = false, scanFields, summarize, timeoutMs = 35_000,
+  permission = 'auto', scanArgs = false, scanFields, summarize, assess, timeoutMs = 35_000,
 }) {
   return {
     name,
@@ -44,6 +45,7 @@ function makeCommandTool({
     timeoutMs,
     ...(scanArgs ? { scanArgs: true, scanFields } : {}),
     ...(summarize ? { summarize } : {}),
+    ...(assess ? { assess } : {}),
     ...(['type_text', 'tap_element'].includes(action) ? {
       assess: ({ target, text }) => sensitiveTarget.test(String(target || '')) ||
           (action === 'type_text' && (sensitiveTarget.test(String(text || '')) || sensitiveValue.test(String(text || '').trim())))
@@ -167,6 +169,7 @@ export const androidTools = [
       match_by: { type: 'string', enum: ['text', 'content_description'], description: 'Which accessible property should match the target.' },
     },
     sideEffects: true,
+    permission: 'confirm',
     scanArgs: true,
     summarize: ({ target }) => `Tap the accessible Android element "${target}"`,
   }),
@@ -201,6 +204,33 @@ export const androidTools = [
     description: 'Read limited visible Android interface labels on request; excludes text-field values and sensitive UI content.',
     action: 'get_visible_state',
     timeoutMs: 15_000,
+  }),
+  makeCommandTool({
+    name: 'android.search_in_app',
+    description: 'Search in a supported Android app by entering ordinary text in an accessible search field and activating its accessible submit control.',
+    action: 'search_in_app',
+    required: ['field_target', 'query', 'submit_target', 'submit_match_by'],
+    properties: {
+      field_target: { type: 'string', minLength: 1, maxLength: 120, description: 'Accessible label or hint for the ordinary search field.' },
+      query: { type: 'string', minLength: 1, maxLength: 200, description: 'Non-sensitive search text.' },
+      submit_target: { type: 'string', minLength: 1, maxLength: 120, description: 'Visible text or content description of the search submit control.' },
+      submit_match_by: { type: 'string', enum: ['text', 'content_description'], description: 'Which accessible property should match the submit control.' },
+    },
+    sideEffects: true,
+    timeoutMs: 15_000,
+    scanArgs: true,
+    scanFields: ['submit_target'],
+    assess: ({ field_target, query, submit_target }) => {
+      if (sensitiveTarget.test(String(field_target || '')) ||
+          sensitiveTarget.test(String(query || '')) || sensitiveValue.test(String(query || '').trim())) {
+        return { decision: 'deny', category: 'credentials', reason: 'EV will not submit passwords, verification codes, payment data, or other sensitive values.' };
+      }
+      if (!searchSubmitTarget.test(String(submit_target || ''))) {
+        return { decision: 'deny', category: 'invalid_search_submit', reason: 'EV only submits a search through an accessible Search, Find, or Go control.' };
+      }
+      return { decision: 'allow' };
+    },
+    summarize: ({ field_target, submit_target }) => `Search in "${field_target}" using the "${submit_target}" control`,
   }),
 ].map((tool) => {
   if (tool.name === 'android.get_device_status') return tool;

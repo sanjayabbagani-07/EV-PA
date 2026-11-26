@@ -122,18 +122,22 @@ final class DeviceControlClient {
                 JSONObject result = AndroidCommandExecutor.execute(context, command);
                 String commandId = command.optString("id", "");
                 if (!commandId.matches("[0-9a-fA-F-]{36}")) {
-                    emitCommandResult(command.optString("action", ""), false, "Android received an invalid command identifier.");
+                    emitCommandResult(command.optString("action", ""), false, false,
+                            "INVALID_COMMAND_ID", "Android received an invalid command identifier.", null);
                     return;
                 }
                 JSONObject ack = request("POST", "/api/agent/device/commands/" + commandId + "/result", result, token);
                 if (!ack.optBoolean("accepted")) {
-                    emitCommandResult(command.optString("action", ""), false, "The EV backend did not confirm the command result.");
+                    emitCommandResult(command.optString("action", ""), false, false,
+                            "RESULT_NOT_ACKNOWLEDGED", "The EV backend did not confirm the command result.", null);
                     return;
                 }
+                JSONObject error = result.optJSONObject("error");
                 emitCommandResult(command.optString("action", ""), result.optBoolean("ok"),
-                        result.optJSONObject("error") == null ? "" : result.optJSONObject("error").optString("message", ""));
+                        result.optBoolean("verified"), error == null ? "" : error.optString("code", ""),
+                        error == null ? "" : error.optString("message", ""), result.optString("verification", ""));
             } catch (Exception error) {
-                emitCommandResult("", false, deviceError(error));
+                emitCommandResult("", false, false, "DEVICE_REQUEST_FAILED", deviceError(error), null);
             } finally {
                 commandInFlight.set(false);
             }
@@ -238,15 +242,18 @@ final class DeviceControlClient {
         sink.emit(event, payload);
     }
 
-    private void emitCommandResult(String action, boolean ok, String message) {
+    private void emitCommandResult(String action, boolean ok, boolean verified, String errorCode, String message, String verification) {
         try {
             JSONObject result = new JSONObject();
             result.put("ok", ok);
             result.put("action", action);
+            result.put("verified", verified);
+            if (!errorCode.isEmpty()) result.put("errorCode", errorCode);
             if (!message.isEmpty()) result.put("message", message);
+            if (verification != null && !verification.isEmpty()) result.put("verification", verification);
             emit("ev-android-command-result", result.toString());
         } catch (Exception ignored) {
-            emit("ev-android-command-result", "{\"ok\":false,\"message\":\"Android command result unavailable.\"}");
+            emit("ev-android-command-result", "{\"ok\":false,\"verified\":false,\"errorCode\":\"RESULT_FORMAT_FAILED\",\"message\":\"Android command result unavailable.\"}");
         }
     }
 

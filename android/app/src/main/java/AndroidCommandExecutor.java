@@ -2,7 +2,6 @@ package com.growthos.jarvis;
 
 import android.content.Context;
 import android.content.Intent;
-import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.net.Uri;
 
@@ -24,6 +23,9 @@ final class AndroidCommandExecutor {
             java.util.regex.Pattern.CASE_INSENSITIVE);
     private static final java.util.regex.Pattern SENSITIVE_VALUE = java.util.regex.Pattern.compile(
             "^(?:\\d{4,8}|(?:\\d[ -]?){13,19})$");
+    private static final java.util.regex.Pattern SEARCH_SUBMIT_TARGET = java.util.regex.Pattern.compile(
+            "^(search|find|go|शोध|ढूँढ|వెతు|శోధ)$",
+            java.util.regex.Pattern.CASE_INSENSITIVE);
 
     private AndroidCommandExecutor() {}
 
@@ -63,6 +65,25 @@ final class AndroidCommandExecutor {
                 case "get_visible_state":
                     if (!hasOnlyKeys(args)) return failure("INVALID_ARGUMENTS", "Visible state inspection does not accept arguments.");
                     return EVAccessibilityService.performAction("get_visible_state", args);
+                case "search_in_app":
+                    if (!hasOnlyKeys(args, "field_target", "query", "submit_target", "submit_match_by") ||
+                            !args.has("field_target") || !args.has("query") ||
+                            !args.has("submit_target") || !args.has("submit_match_by")) {
+                        return failure("INVALID_ARGUMENTS", "Provide a search field, query, and accessible submit control.");
+                    }
+                    if (args.optString("field_target").length() > 120 || args.optString("query").isEmpty() ||
+                            args.optString("query").length() > 200 || args.optString("submit_target").length() > 120) {
+                        return failure("INVALID_ARGUMENTS", "The search field, query, or submit target is outside the allowed length.");
+                    }
+                    if (isSensitiveTarget(args.optString("field_target")) ||
+                            isSensitiveTarget(args.optString("query")) ||
+                            SENSITIVE_VALUE.matcher(args.optString("query").trim()).matches()) {
+                        return failure("SENSITIVE_TARGET", "EV will not submit passwords, verification codes, payment data, or other sensitive values.");
+                    }
+                    if (!SEARCH_SUBMIT_TARGET.matcher(args.optString("submit_target").trim()).matches()) {
+                        return failure("UNSUPPORTED_SEARCH_SUBMIT", "The submit control must be clearly labelled Search, Find, or Go.");
+                    }
+                    return EVAccessibilityService.performAction("search_in_app", args);
                 default:
                     return failure("UNSUPPORTED_ACTION", "This Android action is not supported.");
             }
@@ -156,7 +177,7 @@ final class AndroidCommandExecutor {
         } catch (Exception error) {
             return failure("APP_LAUNCH_FAILED", "Android started the app but could not format its result.");
         }
-        return success(data, "Android accepted the resolved application launch intent.");
+        return success(data, "Android accepted the resolved application launch intent; destination screen readiness was not verified.", false);
     }
 
     private static JSONObject openUrl(Context context, String value) {
@@ -177,7 +198,7 @@ final class AndroidCommandExecutor {
             JSONObject data = new JSONObject();
             data.put("url", uri.toString());
             data.put("launchInitiated", true);
-            return success(data, "Android accepted the URL intent; page load was not independently verified.");
+            return success(data, "Android accepted the URL intent; page load was not independently verified.", false);
         } catch (java.net.URISyntaxException error) {
             return failure("UNSUPPORTED_URL", "The URL is malformed or unsupported.");
         } catch (Exception error) {
@@ -188,7 +209,7 @@ final class AndroidCommandExecutor {
     private static Map<String, String> launchableApps(Context context) {
         Intent launcher = new Intent(Intent.ACTION_MAIN);
         launcher.addCategory(Intent.CATEGORY_LAUNCHER);
-        List<ResolveInfo> resolved = context.getPackageManager().queryIntentActivities(launcher, PackageManager.MATCH_DEFAULT_ONLY);
+        List<ResolveInfo> resolved = context.getPackageManager().queryIntentActivities(launcher, 0);
         Map<String, String> apps = new LinkedHashMap<>();
         for (ResolveInfo item : resolved) {
             if (item.activityInfo == null || item.activityInfo.packageName == null) continue;
@@ -218,11 +239,15 @@ final class AndroidCommandExecutor {
     }
 
     static JSONObject success(JSONObject data, String verification) {
+        return success(data, verification, true);
+    }
+
+    static JSONObject success(JSONObject data, String verification, boolean verified) {
         JSONObject result = new JSONObject();
         try {
             result.put("ok", true);
             result.put("data", data == null ? JSONObject.NULL : data);
-            result.put("verified", true);
+            result.put("verified", verified);
             result.put("verification", verification);
         } catch (Exception ignored) {
             return failure("RESULT_FORMAT_FAILED", "Android could not format the action result.");

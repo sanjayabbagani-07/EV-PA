@@ -401,6 +401,8 @@ function failResult(tool, code, message) {
 function argsPreview(args, toolName) {
   if (toolName === 'android.type_text') {
     args = { target: args?.target, text: '[not stored]' };
+  } else if (toolName === 'android.search_in_app') {
+    args = { ...args, query: '[not stored]' };
   }
   let s;
   try { s = JSON.stringify(redactDeep(args, { numbers: true })); } catch { s = '{}'; }

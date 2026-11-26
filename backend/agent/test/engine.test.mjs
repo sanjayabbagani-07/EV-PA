@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { AgentError } from '../errors.mjs';
 import { makeEngine, runTask, counterTool, echoTool } from './helpers.mjs';
-import { androidGetDeviceStatus } from '../tools/android.mjs';
+import { androidGetDeviceStatus, androidTools } from '../tools/android.mjs';
 
 const lastUserParts = (call) => call.contents.at(-1).parts;
 
@@ -316,6 +316,81 @@ test('records: secrets and card-like numbers are redacted from stored task data'
   const stored = JSON.stringify({ t: task.text, e: task.executions, ev: task.events });
   assert.ok(!stored.includes('AIzaSy'));
   assert.ok(!stored.includes('4111'));
+});
+
+test('Android search queries are not persisted in task execution previews', async () => {
+  const search = {
+    name: 'android.search_in_app',
+    description: 'Runs a mocked Android search action.',
+    permission: 'auto',
+    async run() { return { ok: true, data: { searchSubmitted: true }, verified: true }; },
+  };
+  const ctx = makeEngine({
+    script: [
+      { calls: [{ name: 'android.search_in_app', args: {
+        field_target: 'Search',
+        query: 'private search phrase',
+        submit_target: 'Search',
+        submit_match_by: 'text',
+      } }] },
+      { text: 'Search submitted.' },
+    ],
+    tools: [search],
+  });
+  const task = await runTask(ctx);
+  assert.equal(task.status, 'completed');
+  assert.ok(!JSON.stringify(task.executions).includes('private search phrase'));
+  assert.match(task.executions[0].args, /\[not stored\]/);
+});
+
+test('generic Android taps wait for explicit approval before a device command is queued', async () => {
+  const tapElement = androidTools.find((tool) => tool.name === 'android.tap_element');
+  const ctx = makeEngine({
+    script: [
+      { calls: [{ name: 'android.tap_element', args: { target: 'Continue', match_by: 'text' } }] },
+      { text: 'The phone accepted the tap.' },
+    ],
+    tools: [tapElement],
+  });
+  const deviceId = '11111111-1111-4111-8111-111111111111';
+  await ctx.store.createDevice({
+    id: deviceId,
+    userId: 'owner',
+    platform: 'android',
+    name: 'Test phone',
+    status: 'active',
+    tokenHash: 'a'.repeat(64),
+    createdAt: new Date(ctx.clock.now()).toISOString(),
+    lastSeenAt: new Date(ctx.clock.now()).toISOString(),
+    accessibilityEnabled: true,
+  });
+
+  const task = await ctx.engine.startTask({ userId: 'owner', text: 'Tap the Continue button.' });
+  await ctx.engine.run(task.id);
+  assert.equal(task.status, 'awaiting_approval');
+  assert.match((await ctx.engine.view(task)).pendingApproval.summary, /Continue/);
+  assert.equal(await ctx.store.claimNextDeviceCommand(deviceId, ctx.clock.now()), null);
+
+  const approval = await ctx.engine.resolveApproval({
+    approvalId: task.pendingApprovalId,
+    userId: 'owner',
+    decision: 'approve',
+  });
+  const resumed = approval.resume();
+  let command = null;
+  for (let i = 0; i < 20 && !command; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    command = await ctx.store.claimNextDeviceCommand(deviceId, ctx.clock.now());
+  }
+  assert.equal(command.action, 'tap_element');
+  await ctx.store.completeDeviceCommand(deviceId, command.id, {
+    ok: true,
+    data: { actionInitiated: true },
+    verified: false,
+    verification: 'Android accepted the accessible tap; resulting UI state is unverified.',
+  }, ctx.clock.now());
+  await resumed;
+  assert.equal(task.status, 'completed');
 });
 
 test('history from the client is sanitized and merged into valid alternating turns', async () => {
