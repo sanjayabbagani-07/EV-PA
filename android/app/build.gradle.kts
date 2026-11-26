@@ -4,6 +4,8 @@ plugins {
 
 val startUrl = providers.gradleProperty("JARVIS_START_URL")
     .orElse("https://vamshi-vfx.github.io/jarvis-mobile-edition/frontend/")
+val backendUrl = providers.gradleProperty("JARVIS_BACKEND_URL")
+    .orElse("https://ev-pa-backend.onrender.com")
 
 android {
     namespace = "com.growthos.jarvis"
@@ -16,6 +18,7 @@ android {
         versionCode = 5
         versionName = "0.5.0"
         buildConfigField("String", "JARVIS_START_URL", "\"${startUrl.get().replace("\\", "\\\\").replace("\"", "\\\"")}\"")
+        buildConfigField("String", "JARVIS_BACKEND_URL", "\"${backendUrl.get().replace("\\", "\\\\").replace("\"", "\\\"")}\"")
     }
 
     buildTypes {

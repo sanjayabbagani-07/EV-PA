@@ -23,8 +23,14 @@ Agent routes use a separate owner passphrase and short-lived signed owner sessio
 - `POST /api/agent/approvals/:id`
 - `GET /api/agent/memory`
 - `POST /api/agent/memory/delete`
+- `POST /api/agent/devices/pairings` (owner session; one-time, five-minute code)
+- `GET /api/agent/devices` and `POST /api/agent/devices/:id/revoke` (owner session)
+- `POST /api/agent/device/pair` (one-time code exchange; returns a device credential once)
+- `GET /api/agent/device/status` and `POST /api/agent/device/disconnect` (paired Android credential)
 
 Every task, approval, and memory operation is owner-scoped. Consequential tools remain paused until the exact approval is approved by the authenticated owner. Approvals are single-use and expire.
+
+Android pairing codes are stored as SHA-256 hashes, expire after five minutes, and are single-use. Device bearer credentials are random 256-bit values; only their SHA-256 hashes are stored server-side. The Android app encrypts its credential with an Android Keystore AES-GCM key. A device is considered connected when its last authenticated status check is no more than 90 seconds old. No remote commands are available in this phase.
 
 ## Built-in tools
 
@@ -34,7 +40,7 @@ Browser and Android adapters report `not_configured`. They do not pretend to exe
 
 ## Persistence limitation
 
-Tasks, approvals, and memories use `InMemoryStore`. They are lost whenever the backend process restarts or sleeps. No paid or durable database has been added.
+Tasks, approvals, memories, pairing codes, and device credentials use `InMemoryStore`. They are lost whenever the backend process restarts or sleeps; paired Android devices must pair again after a restart. No paid or durable database has been added.
 
 ## Provider configuration
 

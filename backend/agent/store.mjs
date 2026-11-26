@@ -8,6 +8,8 @@ export class InMemoryStore {
   #tasks = new Map();
   #approvals = new Map();
   #memories = new Map();
+  #pairings = new Map();
+  #devices = new Map();
   constructor({ now = () => Date.now(), maxTasksPerUser = 100, maxMemoriesPerUser = 100, finishedTtlMs = DAY } = {}) {
     this.now = now;
     this.maxTasksPerUser = maxTasksPerUser;
@@ -66,6 +68,51 @@ export class InMemoryStore {
     const next = list.filter((m) => m.id !== id);
     this.#memories.set(userId, next);
     return next.length !== list.length;
+  }
+
+  async createPairing(pairing) {
+    for (const [id, current] of this.#pairings) {
+      if (current.expiresAt <= pairing.createdAt || current.status !== 'pending') this.#pairings.delete(id);
+    }
+    this.#pairings.set(pairing.id, pairing);
+    return pairing;
+  }
+  async consumePairing(codeHash, now = this.now()) {
+    for (const pairing of this.#pairings.values()) {
+      if (pairing.status !== 'pending' || pairing.codeHash !== codeHash) continue;
+      if (pairing.expiresAt <= now) {
+        pairing.status = 'expired';
+        return null;
+      }
+      pairing.status = 'consumed';
+      pairing.consumedAt = new Date(now).toISOString();
+      return pairing;
+    }
+    return null;
+  }
+  async createDevice(device) { this.#devices.set(device.id, device); return device; }
+  async getDevice(id) { return this.#devices.get(id) ?? null; }
+  async getDeviceByTokenHash(tokenHash) {
+    return [...this.#devices.values()].find((device) => device.status === 'active' && device.tokenHash === tokenHash) ?? null;
+  }
+  async listDevices(userId) {
+    return [...this.#devices.values()]
+      .filter((device) => device.userId === userId)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+  async touchDevice(id, now = this.now()) {
+    const device = this.#devices.get(id);
+    if (!device || device.status !== 'active') return null;
+    device.lastSeenAt = new Date(now).toISOString();
+    return device;
+  }
+  async revokeDevice(userId, id, now = this.now()) {
+    const device = this.#devices.get(id);
+    if (!device || device.userId !== userId || device.status !== 'active') return false;
+    device.status = 'revoked';
+    device.tokenHash = null;
+    device.revokedAt = new Date(now).toISOString();
+    return true;
   }
 
   async sweep() {

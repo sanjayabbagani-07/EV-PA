@@ -30,6 +30,15 @@ document.addEventListener("DOMContentLoaded", () => {
     const desktopPairButton = document.getElementById("desktop-pair-button");
     const desktopUnpairButton = document.getElementById("desktop-unpair-button");
     const desktopAgentStatus = document.getElementById("desktop-agent-status");
+    const androidOwnerPassphrase = document.getElementById("android-owner-passphrase");
+    const androidOwnerSignInButton = document.getElementById("android-owner-sign-in");
+    const androidCreatePairingButton = document.getElementById("android-create-pairing");
+    const androidPairingCode = document.getElementById("android-pairing-code");
+    const androidPairDeviceButton = document.getElementById("android-pair-device");
+    const androidDisconnectButton = document.getElementById("android-disconnect-device");
+    const androidRefreshDevicesButton = document.getElementById("android-refresh-devices");
+    const androidDeviceStatus = document.getElementById("android-device-status");
+    const androidDeviceList = document.getElementById("android-device-list");
     if (sendButton) sendButton.addEventListener("click", sendMessage);
     const MEMORY_KEY = "ev_pa_chat_memory";
     const ARCHIVE_KEY = "ev_conversation_archive_v1";
@@ -64,6 +73,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const BACKEND_COMMAND_URL = `${EV_BACKEND_BASE}/api/command`;
     const INTERACTION_URL = `${EV_BACKEND_BASE}/api/interaction/analyze`;
     const BACKEND_CHAT_URL = `${EV_BACKEND_BASE}/api/chat`;
+    let androidOwnerToken = null;
     let voiceErrorStreak = 0;
     function addressName() { return String(conversationPreferences().name || "").trim().slice(0, 40) || "Boss"; }
     // Voice mode switches itself off after this many ms with no speech while the mic is open.
@@ -109,6 +119,162 @@ document.addEventListener("DOMContentLoaded", () => {
             throw new Error(data.message || "Backend command bridge unavailable.");
         }
         return data.result || {};
+    }
+
+    async function androidAgentRequest(path, { method = "GET", token = "", body } = {}) {
+        const headers = { "Content-Type": "application/json" };
+        if (token) headers.Authorization = `Bearer ${token}`;
+        const response = await fetch(`${EV_BACKEND_BASE}/api/agent${path}`, {
+            method,
+            headers,
+            ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+            signal: AbortSignal.timeout(15000)
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || !data.ok) {
+            const error = new Error(data.message || data.code || "Android device request failed.");
+            error.code = data.code || "";
+            throw error;
+        }
+        return data;
+    }
+
+    function setAndroidDeviceStatus(message, state = "") {
+        if (!androidDeviceStatus) return;
+        androidDeviceStatus.textContent = message;
+        androidDeviceStatus.classList.toggle("is-saved", state === "connected");
+        androidDeviceStatus.classList.toggle("is-error", state === "error");
+    }
+
+    function renderAndroidDevices(devices = []) {
+        if (!androidDeviceList) return;
+        androidDeviceList.replaceChildren();
+        if (!devices.length) {
+            androidDeviceList.textContent = "No Android devices are paired to this owner account.";
+            return;
+        }
+        for (const device of devices) {
+            const row = document.createElement("div");
+            row.className = "android-device-row";
+            const label = document.createElement("span");
+            label.textContent = `${device.name} · ${device.connected ? "connected" : device.status === "active" ? "offline" : "revoked"}`;
+            row.appendChild(label);
+            if (device.status === "active") {
+                const revoke = document.createElement("button");
+                revoke.type = "button";
+                revoke.className = "api-key-clear";
+                revoke.textContent = "Revoke";
+                revoke.addEventListener("click", async () => {
+                    if (!androidOwnerToken || !window.confirm(`Revoke EV access for ${device.name}?`)) return;
+                    revoke.disabled = true;
+                    try {
+                        await androidAgentRequest(`/devices/${encodeURIComponent(device.id)}/revoke`, { method: "POST", token: androidOwnerToken, body: {} });
+                        setAndroidDeviceStatus(`${device.name} was revoked.`);
+                        await loadAndroidDevices();
+                    } catch (error) {
+                        setAndroidDeviceStatus(error.message, "error");
+                        revoke.disabled = false;
+                    }
+                });
+                row.appendChild(revoke);
+            }
+            androidDeviceList.appendChild(row);
+        }
+    }
+
+    async function loadAndroidDevices() {
+        if (!androidOwnerToken) {
+            if (androidDeviceList) androidDeviceList.textContent = "Sign in with the owner passphrase to view and revoke paired devices.";
+            return;
+        }
+        try {
+            const data = await androidAgentRequest("/devices", { token: androidOwnerToken });
+            renderAndroidDevices(data.devices || []);
+        } catch (error) {
+            if (error.code === "UNAUTHORIZED") androidOwnerToken = null;
+            throw error;
+        }
+    }
+
+    function refreshAndroidCompanion() {
+        if (!window.JarvisNative?.refreshAndroidDeviceStatus) {
+            setAndroidDeviceStatus("Open EV in the Android companion to check its device connection.");
+            return;
+        }
+        setAndroidDeviceStatus("Checking paired Android device…");
+        window.JarvisNative.refreshAndroidDeviceStatus();
+    }
+
+    async function signInAndroidOwner() {
+        const passphrase = androidOwnerPassphrase?.value || "";
+        if (androidOwnerPassphrase) androidOwnerPassphrase.value = "";
+        if (!passphrase) {
+            setAndroidDeviceStatus("Enter the EV owner passphrase to view and manage paired devices.", "error");
+            androidOwnerPassphrase?.focus();
+            return;
+        }
+        androidOwnerSignInButton.disabled = true;
+        setAndroidDeviceStatus("Authenticating with the EV backend…");
+        try {
+            const login = await androidAgentRequest("/login", { method: "POST", body: { passphrase } });
+            androidOwnerToken = login.token;
+            try {
+                await loadAndroidDevices();
+            } catch (_) {
+                setAndroidDeviceStatus("Signed in, but the device list could not be loaded.");
+                return;
+            }
+            setAndroidDeviceStatus("Signed in. This owner session stays in page memory only.");
+        } catch (error) {
+            androidOwnerToken = null;
+            setAndroidDeviceStatus(error.message, "error");
+        } finally {
+            androidOwnerSignInButton.disabled = false;
+        }
+    }
+
+    async function createAndroidPairingCode() {
+        if (!androidOwnerToken) {
+            setAndroidDeviceStatus("Sign in with the owner passphrase before creating a pairing code.", "error");
+            androidOwnerPassphrase?.focus();
+            return;
+        }
+        androidCreatePairingButton.disabled = true;
+        setAndroidDeviceStatus("Creating a single-use pairing code…");
+        try {
+            const pairing = await androidAgentRequest("/devices/pairings", { method: "POST", token: androidOwnerToken, body: {} });
+            if (androidPairingCode) androidPairingCode.value = pairing.code;
+            setAndroidDeviceStatus("Pairing code created. It expires in five minutes and can be used once.");
+        } catch (error) {
+            if (error.code === "UNAUTHORIZED") androidOwnerToken = null;
+            setAndroidDeviceStatus(error.message, "error");
+        } finally {
+            androidCreatePairingButton.disabled = false;
+        }
+    }
+
+    function pairAndroidCompanion() {
+        const code = androidPairingCode?.value.trim().toLowerCase() || "";
+        if (!/^[a-f0-9]{48}$/.test(code)) {
+            setAndroidDeviceStatus("Enter the complete 48-character one-time pairing code.", "error");
+            androidPairingCode?.focus();
+            return;
+        }
+        if (!window.JarvisNative?.pairAndroidDevice) {
+            setAndroidDeviceStatus("Open this page in the EV Android companion to exchange the pairing code.", "error");
+            return;
+        }
+        setAndroidDeviceStatus("Pairing this Android companion over HTTPS…");
+        window.JarvisNative.pairAndroidDevice(code);
+    }
+
+    function disconnectAndroidCompanion() {
+        if (!window.JarvisNative?.disconnectAndroidDevice) {
+            setAndroidDeviceStatus("Disconnect this device from the EV Android companion app.", "error");
+            return;
+        }
+        setAndroidDeviceStatus("Revoking this device credential…");
+        window.JarvisNative.disconnectAndroidDevice();
     }
 
     async function checkBackendStatus() {
@@ -1249,6 +1415,48 @@ async function startNewConversation() {
     desktopPairCodeInput?.addEventListener("keydown", (event) => {
         if (event.key === "Enter") { event.preventDefault(); pairDesktopAgent(); }
     });
+    androidOwnerSignInButton?.addEventListener("click", signInAndroidOwner);
+    androidCreatePairingButton?.addEventListener("click", createAndroidPairingCode);
+    androidPairDeviceButton?.addEventListener("click", pairAndroidCompanion);
+    androidDisconnectButton?.addEventListener("click", disconnectAndroidCompanion);
+    androidRefreshDevicesButton?.addEventListener("click", async () => {
+        refreshAndroidCompanion();
+        try {
+            await loadAndroidDevices();
+        } catch (error) {
+            setAndroidDeviceStatus(error.message, "error");
+        }
+    });
+    androidPairingCode?.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") { event.preventDefault(); pairAndroidCompanion(); }
+    });
+    window.addEventListener("ev-android-pairing", (event) => {
+        let result;
+        try { result = typeof event.detail === "string" ? JSON.parse(event.detail) : event.detail; }
+        catch (_) { result = { ok: false, message: "The Android companion returned an invalid pairing result." }; }
+        if (result?.ok) {
+            if (androidPairingCode) androidPairingCode.value = "";
+            setAndroidDeviceStatus(`Paired ${result.device?.name || "Android device"} securely.`, "connected");
+            loadAndroidDevices().catch((error) => setAndroidDeviceStatus(error.message, "error"));
+        } else {
+            setAndroidDeviceStatus(result?.message || "Android pairing failed.", "error");
+        }
+    });
+    window.addEventListener("ev-android-device-status", (event) => {
+        let result;
+        try { result = typeof event.detail === "string" ? JSON.parse(event.detail) : event.detail; }
+        catch (_) { result = { ok: false, message: "The Android companion returned an invalid status." }; }
+        if (result?.paired === false) {
+            setAndroidDeviceStatus(result.message || "No Android device is paired.");
+        } else if (result?.disconnected) {
+            setAndroidDeviceStatus("Android device disconnected and its credential was revoked.");
+        } else if (result?.ok && result.device) {
+            const state = result.device.connected ? "connected" : "";
+            setAndroidDeviceStatus(`${result.device.name || "Android device"} is ${result.device.connected ? "connected" : "paired but offline"}.`, state);
+        } else {
+            setAndroidDeviceStatus(result?.message || "Android device status is unavailable.", result?.error ? "error" : "");
+        }
+    });
     desktopUnpairButton?.addEventListener("click", async () => {
         if (!desktopSessionToken) {
             setDesktopAgentStatus("No active pairing in this page. Restart the agent if it is still paired elsewhere.");
@@ -1296,6 +1504,7 @@ async function startNewConversation() {
     }
 
     installAndroidSharePreview();
+    refreshAndroidCompanion();
     initializeVoiceControls();
     setupVoice();
     setupWake();

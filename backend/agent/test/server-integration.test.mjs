@@ -60,6 +60,22 @@ test('agent routes: auth required, bad JSON handled, login works', async () => {
   assert.equal(status.json.tools.find((t) => t.name === 'web_search').available, false);
 });
 
+test('Android pairing endpoints are mounted on the existing backend', async () => {
+  const { json: { token: ownerToken } } = await req('POST', '/api/agent/login', { body: { passphrase: PASS } });
+  const pairing = await req('POST', '/api/agent/devices/pairings', { token: ownerToken, body: {} });
+  assert.equal(pairing.status, 200);
+  const paired = await req('POST', '/api/agent/device/pair', {
+    body: { code: pairing.json.code, name: 'Integration phone', platform: 'android' },
+  });
+  assert.equal(paired.status, 201);
+  const status = await req('GET', '/api/agent/device/status', { token: paired.json.deviceToken });
+  assert.equal(status.status, 200);
+  assert.equal(status.json.device.name, 'Integration phone');
+  const disconnected = await req('POST', '/api/agent/device/disconnect', { token: paired.json.deviceToken, body: {} });
+  assert.equal(disconnected.json.disconnected, true);
+  assert.equal((await req('GET', '/api/agent/device/status', { token: paired.json.deviceToken })).status, 401);
+});
+
 test('agent task runs through the real server and fails honestly when Gemini is not configured', async () => {
   const { json: { token } } = await req('POST', '/api/agent/login', { body: { passphrase: PASS } });
   const r = await req('POST', '/api/agent/tasks', { token, body: { text: 'what time is it?', wait: true } });

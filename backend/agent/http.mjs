@@ -1,13 +1,36 @@
 // Runtime-neutral HTTP API. handle({method, pathname, headers, body, ip}) -> {status, json} | null.
 // Returns null for paths outside /api/agent so the host server can continue routing.
-// Auth: owner passphrase -> short-lived signed bearer token (scope "owner"). Every route except login needs it.
+// Auth: owner routes require a short-lived signed bearer; Android device routes use a one-time code or device credential.
 import { AgentError } from './errors.mjs';
 import { signToken, verifyToken, bearerFrom, safeEqual, RateLimiter } from './auth.mjs';
 import { cleanLabel } from './prompt.mjs';
 
 const OWNER = 'owner';
+const DEVICE_ONLINE_MS = 90_000;
 const ok = (json, status = 200) => ({ status, json: { ok: true, ...json } });
 const err = (status, code, message) => ({ status, json: { ok: false, code, message } });
+const hex = (bytes) => [...new Uint8Array(bytes)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+const randomHex = (length) => hex(crypto.getRandomValues(new Uint8Array(length)));
+async function hashSecret(value) {
+  return hex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value)));
+}
+function publicDevice(device, now) {
+  const lastSeen = Date.parse(device.lastSeenAt || '');
+  return {
+    id: device.id,
+    name: device.name,
+    platform: device.platform,
+    status: device.status,
+    connected: device.status === 'active' && Number.isFinite(lastSeen) && now - lastSeen <= DEVICE_ONLINE_MS,
+    createdAt: device.createdAt,
+    lastSeenAt: device.lastSeenAt,
+    ...(device.revokedAt ? { revokedAt: device.revokedAt } : {}),
+  };
+}
+function hasOnlyKeys(value, allowed) {
+  return value && typeof value === 'object' && !Array.isArray(value) &&
+    Object.keys(value).every((key) => allowed.includes(key));
+}
 
 function validTimeZone(tz) {
   if (typeof tz !== 'string' || !tz || tz.length > 64) return '';
@@ -19,6 +42,8 @@ export function createAgentApi({ engine, store, registry, adapters, env = {}, wa
   // Backstop in case a client spoofs its IP: caps attempts across everyone (single-owner app).
   const globalLoginLimiter = new RateLimiter({ limit: 30, windowMs: 10 * 60_000, now });
   const taskLimiter = new RateLimiter({ limit: 15, windowMs: 60_000, now });
+  const pairingLimiter = new RateLimiter({ limit: 5, windowMs: 60_000, now });
+  const pairingCreationLimiter = new RateLimiter({ limit: 5, windowMs: 60_000, now });
   const ttlSeconds = Math.min(72, Math.max(1, Number(env.EV_SESSION_TTL_HOURS) || 12)) * 3600;
   const secret = String(env.EV_SESSION_SECRET || '');
   const passphrase = String(env.EV_OWNER_PASSPHRASE || '');
@@ -41,6 +66,56 @@ export function createAgentApi({ engine, store, registry, adapters, env = {}, wa
       return ok({ token, expiresAt });
     }
 
+    if (a === 'device' && b === 'pair' && seg.length === 2) {
+      if (method !== 'POST') return err(405, 'METHOD_NOT_ALLOWED', 'Use POST.');
+      if (!pairingLimiter.take(`pair:${ip}`)) return err(429, 'RATE_LIMITED', 'Too many pairing attempts. Wait a minute and try again.');
+      if (!hasOnlyKeys(body, ['code', 'name', 'platform']) ||
+          typeof body.code !== 'string' || !/^[a-f0-9]{48}$/.test(body.code) ||
+          typeof body.name !== 'string' || !body.name.trim() || body.name.length > 60 ||
+          body.platform !== 'android') {
+        return err(400, 'INVALID_PAIRING_REQUEST', 'Provide a valid one-time code, device name, and Android platform.');
+      }
+      const deviceName = body.name.replace(/[\u0000-\u001f\u007f]/g, '').trim();
+      if (!deviceName) return err(400, 'INVALID_PAIRING_REQUEST', 'Device name must contain printable characters.');
+      const pairing = await store.consumePairing(await hashSecret(body.code), now());
+      if (!pairing) return err(401, 'PAIRING_INVALID', 'The pairing code is invalid, expired, or already used.');
+      const deviceToken = randomHex(32);
+      const device = {
+        id: crypto.randomUUID(),
+        userId: pairing.userId,
+        name: deviceName.slice(0, 60),
+        platform: 'android',
+        tokenHash: await hashSecret(deviceToken),
+        status: 'active',
+        createdAt: new Date(now()).toISOString(),
+        lastSeenAt: new Date(now()).toISOString(),
+        revokedAt: null,
+      };
+      await store.createDevice(device);
+      return ok({ deviceId: device.id, deviceToken, device: publicDevice(device, now()) }, 201);
+    }
+
+    if (a === 'device' && b === 'status' && seg.length === 2) {
+      if (method !== 'GET') return err(405, 'METHOD_NOT_ALLOWED', 'Use GET.');
+      const token = bearerFrom(headers);
+      const device = /^[a-f0-9]{64}$/.test(token) ? await store.getDeviceByTokenHash(await hashSecret(token)) : null;
+      if (!device) return err(401, 'UNAUTHORIZED_DEVICE', 'A valid paired Android device credential is required.');
+      const active = await store.touchDevice(device.id, now());
+      if (!active) return err(401, 'UNAUTHORIZED_DEVICE', 'This Android device has been revoked.');
+      return ok({ device: publicDevice(active, now()) });
+    }
+
+    if (a === 'device' && b === 'disconnect' && seg.length === 2) {
+      if (method !== 'POST') return err(405, 'METHOD_NOT_ALLOWED', 'Use POST.');
+      if (!hasOnlyKeys(body, [])) return err(400, 'INVALID_REQUEST', 'Device disconnect does not accept arguments.');
+      const token = bearerFrom(headers);
+      const device = /^[a-f0-9]{64}$/.test(token) ? await store.getDeviceByTokenHash(await hashSecret(token)) : null;
+      if (!device) return err(401, 'UNAUTHORIZED_DEVICE', 'A valid paired Android device credential is required.');
+      const revoked = await store.revokeDevice(device.userId, device.id, now());
+      if (!revoked) return err(401, 'UNAUTHORIZED_DEVICE', 'This Android device has already been revoked.');
+      return ok({ deviceId: device.id, disconnected: true });
+    }
+
     const claims = await verifyToken(bearerFrom(headers), secret, { scope: 'owner', now: now() });
     if (!claims || claims.sub !== OWNER) return err(401, 'UNAUTHORIZED', 'Sign in to use the agent.');
     const userId = claims.sub;
@@ -56,13 +131,41 @@ export function createAgentApi({ engine, store, registry, adapters, env = {}, wa
         adapters: adapters.status(),
         tools: registry.list({ env: engine.toolEnv, userId }),
         limits: { maxSteps: engine.cfg.maxSteps, maxToolCalls: engine.cfg.maxToolCalls, approvalTtlMs: engine.cfg.approvalTtlMs },
-        persistence: { type: 'in_memory', durable: false, note: 'Tasks, approvals, and saved memories are lost when the backend restarts.' },
+        persistence: { type: 'in_memory', durable: false, note: 'Tasks, approvals, memories, pairings, and device credentials are lost when the backend restarts.' },
       });
     }
 
     if (a === 'tools' && seg.length === 1) {
       if (method !== 'GET') return err(405, 'METHOD_NOT_ALLOWED', 'Use GET.');
       return ok({ tools: registry.list({ env: engine.toolEnv, userId }) });
+    }
+
+    if (a === 'devices' && seg.length === 1) {
+      if (method !== 'GET') return err(405, 'METHOD_NOT_ALLOWED', 'Use GET.');
+      const devices = await store.listDevices(userId);
+      return ok({ devices: devices.map((device) => publicDevice(device, now())) });
+    }
+
+    if (a === 'devices' && b === 'pairings' && seg.length === 2) {
+      if (method !== 'POST') return err(405, 'METHOD_NOT_ALLOWED', 'Use POST.');
+      if (!hasOnlyKeys(body, [])) return err(400, 'INVALID_REQUEST', 'Pairing code requests do not accept arguments.');
+      if (!pairingCreationLimiter.take(`pairing:${userId}`)) return err(429, 'RATE_LIMITED', 'Too many pairing codes were requested. Wait a minute and try again.');
+      const code = randomHex(24);
+      const createdAt = now();
+      const expiresAt = createdAt + 5 * 60_000;
+      await store.createPairing({
+        id: crypto.randomUUID(), userId, codeHash: await hashSecret(code),
+        status: 'pending', createdAt, expiresAt,
+      });
+      return ok({ code, expiresAt });
+    }
+
+    if (a === 'devices' && b && c === 'revoke' && seg.length === 3) {
+      if (method !== 'POST') return err(405, 'METHOD_NOT_ALLOWED', 'Use POST.');
+      if (!hasOnlyKeys(body, [])) return err(400, 'INVALID_REQUEST', 'Device revocation does not accept arguments.');
+      const revoked = await store.revokeDevice(userId, b, now());
+      if (!revoked) return err(404, 'DEVICE_NOT_FOUND', 'No active device with that id belongs to this account.');
+      return ok({ deviceId: b, revoked: true });
     }
 
     if (a === 'tasks') {
